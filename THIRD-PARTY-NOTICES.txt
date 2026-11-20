@@ -1,0 +1,33 @@
+UMBRAL — Avisos de terceros / Third-Party Notices
+==================================================
+
+Este proyecto incluye o depende de componentes de terceros, cada uno con su
+propia licencia. Se listan aquí para su atribución y cumplimiento.
+
+App Android (carpeta android/) y el APK distribuido
+---------------------------------------------------
+- Linphone SDK  (org.linphone:linphone-sdk-android) .......... GPLv3
+  Por enlazar este SDK, la app Android y el APK se distribuyen bajo GPLv3
+  (ver android/LICENSE).
+- OkHttp  (com.squareup.okhttp3:okhttp) ...................... Apache License 2.0
+- ZXing Android Embedded  (com.journeyapps:zxing-android-embedded) ... Apache License 2.0
+- AndroidX, Material Components, Kotlin (stdlib/coroutines) .. Apache License 2.0
+- Firebase Cloud Messaging SDK  (com.google.firebase) ....... Términos de servicio de las APIs de Google (licencia de uso propietaria)
+- Material Design Icons (iconos SVG usados en la interfaz) ... Apache License 2.0
+
+Panel / pila de la placa (carpeta deploy/)
+------------------------------------------
+- simple-keyboard  (deploy/opt/qvadis-ui/www/vendor/) ........ MIT License
+  (c) Francisco Hodge y colaboradores del proyecto.
+- Material Design Icons (iconos SVG usados en la interfaz web) . Apache License 2.0
+
+Resto del proyecto
+------------------
+Todo lo que está fuera de android/ se publica bajo PolyForm Noncommercial
+License 1.0.0 (ver LICENSE).
+
+Marcas
+------
+"Qvadis", "Fermax", "VDS/ADS" son marcas de sus respectivos titulares. Este
+proyecto es comunitario y no está afiliado a ellos; los nombres se usan solo
+para identificar el equipo compatible.

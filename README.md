@@ -177,6 +177,7 @@ App Android nativa que convierte el móvil en un telefonillo del videoportero. C
 - **Qué hace:** recibe la llamada a pantalla completa con el **vídeo de la cámara** de fondo, **atender/colgar/abrir**, manos libres y silencio; **abrir con huella/PIN**; historial con fotos; y un **widget** de apertura rápida. Sigue registrada (servicio en primer plano) con **push FCM** de respaldo.
 - **Emparejar:** **Ajustes → Móviles emparejados → Emparejar** en el panel y **escanea el QR** con la app; se autoconfigura (cuenta SIP, puertos, dominio y huella del certificado).
 - **Compilar desde cero:** `cd android && ./build.sh` (descarga JDK 17 + Gradle portables). Para el push necesitas tu propio **`google-services.json`** (crea un proyecto en Firebase con el *package* `es.qvadis.app`, descarga el fichero y ponlo en `android/app/`); por eso no se incluye en el repo.
+- **Licencia:** la app y el APK están bajo **GPLv3** (enlazan Linphone GPLv3) — ver [`android/LICENSE`](android/LICENSE).
 
 > La app de fábrica de Qvadis (nube cerrada) **no** sirve; UMBRAL la sustituye y habla solo con **tu** placa.
 
@@ -264,6 +265,11 @@ docs/              Documentación, PDFs de referencia y capturas (docs/screensho
 
 Proyecto comunitario de reparación y reutilización, **sin ánimo de lucro** y sin afiliación con el fabricante original.
 
-Publicado bajo la **[PolyForm Noncommercial License 1.0.0](LICENSE)**: puedes **usar, estudiar, modificar y compartir** el código libremente **para fines no comerciales**. **No se permite ningún uso comercial** — nadie puede **cobrar ni vender** productos o servicios basados en este código sin permiso del autor. Es una licencia *source-available* **no comercial** (no una licencia OSI "open source" clásica, precisamente porque esas sí permiten el uso comercial).
+**Licencias (por componente):**
+
+- **Pila de la placa** (`manager.js`, `deploy/`, scripts, UI del panel): **[PolyForm Noncommercial License 1.0.0](LICENSE)** — puedes **usar, estudiar, modificar y compartir** libremente **para fines no comerciales**. **Nadie puede cobrar ni vender** productos o servicios basados en esta parte. Es *source-available* **no comercial** (no una licencia OSI clásica, precisamente porque esas sí permiten el uso comercial).
+- **App Android** (`android/`) y el **APK** distribuido: **[GPLv3](android/LICENSE)**. Es obligatorio porque la app enlaza el **SDK de Linphone (GPLv3)**; por esa licencia, esta parte **sí** permite el uso comercial del binario (no se le puede imponer la cláusula "no comercial").
+
+Componentes de terceros y sus licencias: ver [`THIRD-PARTY-NOTICES.txt`](THIRD-PARTY-NOTICES.txt).
 
 "Qvadis", "Fermax", "VDS/ADS" son marcas de sus respectivos titulares; este proyecto no está afiliado a ellos.
