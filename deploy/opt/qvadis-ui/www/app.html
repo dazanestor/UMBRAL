@@ -36,7 +36,7 @@ body{
   padding:12px 18px 8px;font-size:12px;color:var(--muted);flex:none;
 }
 .statusbar .right{display:flex;gap:10px;align-items:center}
-.chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;letter-spacing:.02em}
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;letter-spacing:.02em}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok)}
 .dot.off{background:var(--faint);box-shadow:none}
 /* ---- zona de pantallas ---- */
@@ -53,10 +53,10 @@ body{
 .nav button{flex:1}
 .nav button{
   background:none;border:none;color:var(--faint);padding:10px 0 12px;
-  display:flex;flex-direction:column;align-items:center;gap:4px;font-size:10px;
+  display:flex;flex-direction:column;align-items:center;gap:4px;font-size:12px;
   font-family:var(--font);cursor:pointer;transition:color .15s;
 }
-.nav button svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.7}
+.nav button svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2.1}
 .nav button.active{color:var(--accent)}
 /* ---- home ---- */
 .clock{font-family:var(--display);font-weight:500;letter-spacing:-.02em;
@@ -69,22 +69,22 @@ body{
 .weather .temp{font-family:var(--display);font-size:40px;font-weight:500;line-height:1;font-variant-numeric:tabular-nums}
 .weather .cond{color:var(--muted);font-size:14px}
 .weather .meta{margin-left:auto;text-align:right;color:var(--muted);font-size:12px;line-height:1.5}
-.sectlabel{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin:2px 2px -4px}
+.sectlabel{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin:2px 2px -4px}
 /* ---- cámara ---- */
 .camwrap{position:relative;border-radius:var(--r);overflow:hidden;background:#000;border:1px solid var(--border)}
 .camwrap canvas{display:block;width:100%;height:100%}
 .camwrap.tile{aspect-ratio:16/10}
 .camwrap.full{flex:1;min-height:230px}
 .live{position:absolute;top:10px;left:10px;display:flex;align-items:center;gap:6px;
-  font-size:11px;letter-spacing:.08em;background:rgba(0,0,0,.45);padding:4px 9px;border-radius:20px}
+  font-size:12px;letter-spacing:.08em;background:rgba(0,0,0,.45);padding:4px 9px;border-radius:20px}
 .live .dot{background:var(--alert);box-shadow:0 0 8px var(--alert);animation:pulse 1.6s infinite}
-.cam-ts{position:absolute;bottom:10px;right:12px;font-size:11px;color:#cdd3da;
+.cam-ts{position:absolute;bottom:10px;right:12px;font-size:12px;color:#cdd3da;
   background:rgba(0,0,0,.4);padding:3px 8px;border-radius:8px;font-variant-numeric:tabular-nums}
 .cam-label{position:absolute;bottom:10px;left:12px;font-size:12px;color:#e7ebef;
   background:rgba(0,0,0,.4);padding:4px 10px;border-radius:8px}
 @keyframes pulse{50%{opacity:.35}}
 .camoff{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:var(--surface2);color:var(--muted);text-align:center;padding:16px}
-.camoff svg{width:40px;height:40px;stroke:var(--faint);fill:none;stroke-width:1.5}
+.camoff svg{width:40px;height:40px;stroke:var(--faint);fill:none;stroke-width:1.9}
 .camoff .t{font-size:13px;max-width:200px}
 body.no-cam [data-cam] canvas{opacity:0}
 body.no-cam [data-cam] .live,body.no-cam [data-cam] .cam-ts,body.no-cam [data-cam] .cam-label{display:none}
@@ -118,13 +118,13 @@ input[type=time]{color-scheme:dark}
   background:var(--surface);border:1px solid var(--border);color:var(--fg);
   font-family:var(--font);font-size:14px;cursor:pointer;text-align:left;transition:.15s}
 .abtn:hover{background:var(--surface2)}
-.abtn svg{width:24px;height:24px;stroke:var(--accent);fill:none;stroke-width:1.7;flex:none}
+.abtn svg{width:24px;height:24px;stroke:var(--accent);fill:none;stroke-width:2.1;flex:none}
 .abtn.primary{background:var(--accent);border-color:var(--accent);color:#07252a}
 .abtn.primary svg{stroke:#07252a}
 .round{display:flex;flex-direction:column;align-items:center;gap:7px;background:none;border:none;color:var(--fg);font-family:var(--font);font-size:12px;cursor:pointer}
 .round .ic{width:60px;height:60px;border-radius:50%;display:grid;place-items:center;
   background:var(--raised);border:1px solid var(--border)}
-.round .ic svg{width:26px;height:26px;stroke:var(--fg);fill:none;stroke-width:1.7}
+.round .ic svg{width:26px;height:26px;stroke:var(--fg);fill:none;stroke-width:2.1}
 .round.hang .ic{background:var(--alert);border-color:var(--alert)}.round.hang .ic svg{stroke:#fff}
 .round.ans .ic{background:var(--ok);border-color:var(--ok)}.round.ans .ic svg{stroke:#06240f}
 .round.open .ic{background:var(--accent);border-color:var(--accent)}.round.open .ic svg{stroke:#07252a}
@@ -138,9 +138,9 @@ input[type=time]{color-scheme:dark}
 .row .end{margin-left:auto;display:flex;gap:8px}
 .iconbtn{width:40px;height:40px;border-radius:50%;background:var(--raised);border:1px solid var(--border);
   display:grid;place-items:center;cursor:pointer}
-.iconbtn svg{width:19px;height:19px;stroke:var(--accent);fill:none;stroke-width:1.8}
+.iconbtn svg{width:19px;height:19px;stroke:var(--accent);fill:none;stroke-width:2.1}
 .setrow{display:flex;align-items:center;gap:14px;padding:16px 4px;border-bottom:1px solid var(--border);cursor:pointer}
-.setrow svg.lead{width:22px;height:22px;stroke:var(--muted);fill:none;stroke-width:1.7;flex:none}
+.setrow svg.lead{width:22px;height:22px;stroke:var(--muted);fill:none;stroke-width:2.1;flex:none}
 .setrow .arr{margin-left:auto;color:var(--faint)}
 .setrow .val{margin-left:auto;color:var(--muted);font-size:13px}
 h2.title{font-family:var(--display);font-weight:500;font-size:22px;margin:6px 2px 0;letter-spacing:-.01em}
@@ -194,8 +194,8 @@ h2.title{font-family:var(--display);font-weight:500;font-size:22px;margin:6px 2p
 .simbell{position:absolute;right:16px;bottom:78px;z-index:20;background:var(--alert);color:#fff;
   border:none;border-radius:30px;padding:11px 16px;font-family:var(--font);font-size:13px;font-weight:600;
   display:flex;align-items:center;gap:7px;cursor:pointer;box-shadow:0 10px 24px -6px rgba(255,106,90,.5)}
-.simbell svg{width:17px;height:17px;stroke:#fff;fill:none;stroke-width:1.8}
-.demohint{text-align:center;font-size:11px;color:var(--faint);margin-top:2px}
+.simbell svg{width:17px;height:17px;stroke:#fff;fill:none;stroke-width:2.1}
+.demohint{text-align:center;font-size:12px;color:var(--faint);margin-top:2px}
 </style>
 
 <div class="device">
@@ -229,7 +229,7 @@ h2.title{font-family:var(--display);font-weight:500;font-size:22px;margin:6px 2p
         <div class="meta"></div>
       </div>
 
-      <div class="camwrap tile home-cam" data-cam data-scene="entrada" onclick="go('cam')">
+      <div class="camwrap tile home-cam" data-cam data-scene="entrada">
         <canvas width="440" height="275"></canvas>
         <span class="live"><span class="dot"></span>EN VIVO</span>
         <span class="cam-ts" data-ts></span>
@@ -250,20 +250,6 @@ h2.title{font-family:var(--display);font-weight:500;font-size:22px;margin:6px 2p
     </section>
 
     <!-- ======= CÁMARA ======= -->
-    <section class="screen" id="s-cam" hidden>
-      <h2 class="title">Cámara</h2>
-      <div class="camwrap full" data-cam data-scene="entrada">
-        <canvas width="440" height="300"></canvas>
-        <span class="live"><span class="dot"></span>EN VIVO</span>
-        <span class="cam-ts" data-ts></span>
-        <span class="cam-label" id="cam-name">Puerta principal</span>
-      </div>
-      <div class="camtabs" id="cam-tabs"></div>
-      <div class="actions" style="grid-template-columns:repeat(2,1fr)">
-        <button class="round" onclick="takePhoto(this)"><span class="ic"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="4"/></svg></span>Foto</button>
-        <button class="round open" onclick="openDoor('front')"><span class="ic"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0"/><circle cx="14.5" cy="16" r="1.2" fill="#07252a" stroke="none"/></svg></span>Abrir</button>
-      </div>
-    </section>
 
     <!-- ======= TELÉFONO ======= -->
     <section class="screen" id="s-phone" hidden>
@@ -397,7 +383,7 @@ h2.title{font-family:var(--display);font-weight:500;font-size:22px;margin:6px 2p
       <h2 class="title">WiFi</h2>
       <div class="card">
         <div class="row" style="padding:8px 0">
-          <div class="av" style="background:var(--raised)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8"><path d="M2 8.5a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M8.5 15.5a6 6 0 0 1 7 0"/><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/></svg></div>
+          <div class="av" style="background:var(--raised)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.1"><path d="M2 8.5a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M8.5 15.5a6 6 0 0 1 7 0"/><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/></svg></div>
           <div><div class="nm">—</div><div class="sub">Cargando…</div></div>
         </div>
       </div>
@@ -475,7 +461,6 @@ h2.title{font-family:var(--display);font-weight:500;font-size:22px;margin:6px 2p
   <!-- nav -->
   <nav class="nav">
     <button class="active" data-t="home" onclick="go('home')"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7M5 10v10h5v-6h4v6h5V10"/></svg>Inicio</button>
-    <button data-t="cam" onclick="go('cam')"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="4"/></svg>Cámara</button>
     <button data-t="phone" onclick="go('phone')"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Actividad</button>
     <button data-t="set" onclick="gotoSettings()"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.3l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2.3-1.3L14 2h-4l-.3 2.5A7 7 0 0 0 7.4 5.8l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .9.1 1.3l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2.3 1.3L10 22h4l.3-2.5a7 7 0 0 0 2.3-1.3l2.3 1 2-3.4-2-1.5c.1-.4.1-.9.1-1.3Z"/></svg>Ajustes</button>
   </nav>
@@ -553,53 +538,6 @@ function tick(){
 }
 setInterval(tick,1000);tick();
 
-/* ---------- cámara simulada (CCTV falso) ---------- */
-const scenes={
-  entrada:{sky:'#10151b',ground:'#0a0d11',door:'#1b2129',accent:'#2a3340'},
-  garaje :{sky:'#0d0f14',ground:'#111318',door:'#20242c',accent:'#2c2f38'},
-  patio  :{sky:'#0e1510',ground:'#0b100c',door:'#1a231b',accent:'#263226'}
-};
-function drawCam(cv,scene,t){
-  const x=cv.getContext('2d'),w=cv.width,h=cv.height,s=scenes[scene]||scenes.entrada;
-  // fondo
-  let g=x.createLinearGradient(0,0,0,h);g.addColorStop(0,s.sky);g.addColorStop(1,s.ground);
-  x.fillStyle=g;x.fillRect(0,0,w,h);
-  // suelo
-  x.fillStyle=s.ground;x.fillRect(0,h*0.68,w,h*0.32);
-  x.strokeStyle='rgba(255,255,255,.04)';x.lineWidth=1;
-  for(let i=1;i<6;i++){x.beginPath();x.moveTo(w*0.5-(i*w*0.12),h);x.lineTo(w*0.5-(i*w*0.03),h*0.68);x.stroke();
-    x.beginPath();x.moveTo(w*0.5+(i*w*0.12),h);x.lineTo(w*0.5+(i*w*0.03),h*0.68);x.stroke();}
-  // puerta / portal
-  x.fillStyle=s.door;x.fillRect(w*0.34,h*0.26,w*0.32,h*0.44);
-  x.strokeStyle=s.accent;x.lineWidth=2;x.strokeRect(w*0.34,h*0.26,w*0.32,h*0.44);
-  x.fillStyle=s.accent;x.fillRect(w*0.46,h*0.30,w*0.08,h*0.36);
-  // farola / luz tenue parpadeante
-  const flick=0.5+0.5*Math.abs(Math.sin(t*0.9));
-  const lg=x.createRadialGradient(w*0.5,h*0.2,10,w*0.5,h*0.2,w*0.5);
-  lg.addColorStop(0,`rgba(244,196,91,${0.10*flick})`);lg.addColorStop(1,'rgba(0,0,0,0)');
-  x.fillStyle=lg;x.fillRect(0,0,w,h);
-  // ruido CCTV
-  x.globalAlpha=0.05;
-  for(let i=0;i<60;i++){x.fillStyle=Math.random()>.5?'#fff':'#000';
-    x.fillRect(Math.random()*w,Math.random()*h,2,2);}
-  x.globalAlpha=1;
-  // scanline
-  const sy=(t*60)%h;x.fillStyle='rgba(120,200,210,.05)';x.fillRect(0,sy,w,3);
-  // viñeta
-  const vg=x.createRadialGradient(w/2,h/2,h*0.3,w/2,h/2,h*0.75);
-  vg.addColorStop(0,'rgba(0,0,0,0)');vg.addColorStop(1,'rgba(0,0,0,.6)');
-  x.fillStyle=vg;x.fillRect(0,0,w,h);
-}
-let t0=0;
-function loop(ts){
-  const t=ts/1000;
-  document.querySelectorAll('[data-cam]').forEach(wrap=>{
-    if(wrap.offsetParent===null)return; // oculto
-    const cv=wrap.querySelector('canvas');if(cv)drawCam(cv,wrap.dataset.scene,t);
-  });
-  requestAnimationFrame(loop);
-}
-requestAnimationFrame(loop);
 
 /* ---------- cámara configurada o no ---------- */
 const CAMOFF_SVG='<svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="4"/><path d="M3 3l18 18"/></svg>';
@@ -608,7 +546,7 @@ let CAMS=[{scene:'entrada',name:'Puerta principal'},{scene:'garaje',name:'Garaje
 function initCamOff(){document.querySelectorAll('[data-cam]').forEach(w=>{if(!w.querySelector('.camoff')){const d=document.createElement('div');d.className='camoff';d.innerHTML=CAMOFF_SVG+'<div class="t">Sin cámara configurada</div>';w.appendChild(d);}});}
 function applyCamState(){const has=camConfigured&&CAMS.length>0;document.body.classList.toggle('no-cam',!has);const v=document.getElementById('cam-set-val');if(v)v.textContent=has?(CAMS.length+(CAMS.length>1?' configuradas':' configurada')):'Sin cámara';const sl=document.querySelector('#s-home .sectlabel');if(sl&&has)sl.textContent='Cámara · '+CAMS[0].name;}
 function toggleCam(){camConfigured=!camConfigured;applyCamState();saveState();toast(camConfigured?'Cámara activada':'Llamada sin cámara');}
-renderCamTabs();initCamOff();applyCamState();
+initCamOff();applyCamState();
 
 /* ---------- volúmenes / pantalla ---------- */
 function rangeFill(el){const v=(el.value-el.min)/(el.max-el.min)*100;el.style.background='linear-gradient(90deg,var(--accent) '+v+'%,var(--surface2) '+v+'%)';const l=document.querySelector('[data-for="'+el.id+'"]');if(l)l.textContent=Math.round(el.value)+'%';}
@@ -624,13 +562,6 @@ function toggleAux(on){var o=document.getElementById('aux-opts');if(o)o.style.di
 function renameAux(v){}
 function auxType(btn,t){document.querySelectorAll('#aux-opts .camtabs button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}
 
-function renderCamTabs(){const c=document.getElementById('cam-tabs');if(!c)return;c.innerHTML=CAMS.map((cm,i)=>'<button class="'+(i===0?'active':'')+'" onclick="pickCam(this,\''+cm.scene+'\',\''+cm.name+'\')">'+cm.name+'</button>').join('');const w=document.querySelector('#s-cam [data-cam]');if(w&&CAMS[0])w.dataset.scene=CAMS[0].scene;const n=document.getElementById('cam-name');if(n&&CAMS[0])n.textContent=CAMS[0].name;}
-function pickCam(btn,scene,name){
-  document.querySelectorAll('#cam-tabs button').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
-  const wrap=document.querySelector('#s-cam [data-cam]');wrap.dataset.scene=scene;
-  document.getElementById('cam-name').textContent=name;
-}
 const MIC_ON_SVG='<path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3Z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>';
 const MIC_OFF_SVG=MIC_ON_SVG+'<path d="M3 3l18 18"/>';
 function toggleMic(b){b.classList.toggle('active');
@@ -781,7 +712,7 @@ let tT;function toast(msg){const t=document.getElementById('toast');t.textConten
   function ovPollOnce(base){
     if(!ovWant)return;
     var pre=new Image();
-    pre.onload=function(){ if(!ovWant)return; if(ovCanvas){ try{ ovCanvas.getContext('2d').drawImage(pre,0,0,ovCanvas.width,ovCanvas.height);}catch(e){} } ovPollTimer=setTimeout(function(){ovPollOnce(base);},200); };
+    pre.onload=function(){ if(!ovWant)return; if(ovCanvas){ var cv=ovCanvas, dw=cv.clientWidth||cv.width, dh=cv.clientHeight||cv.height; if(cv.width!==dw)cv.width=dw; if(cv.height!==dh)cv.height=dh; var cx=cv.getContext('2d'); var iw=pre.naturalWidth||pre.width, ih=pre.naturalHeight||pre.height; if(iw&&ih){ var s=Math.max(dw/iw,dh/ih), w=iw*s, hh=ih*s; try{ cx.drawImage(pre,(dw-w)/2,(dh-hh)/2,w,hh); }catch(e){} } } ovPollTimer=setTimeout(function(){ovPollOnce(base);},200); };
     pre.onerror=function(){ if(!ovWant)return; ovPollTimer=setTimeout(function(){ovPollOnce(base);},1000); };
     pre.src=base+(base.indexOf('?')<0?'?':'&')+'t='+Date.now();
   }
@@ -808,9 +739,6 @@ let tT;function toast(msg){const t=document.getElementById('toast');t.textConten
 })();
 </script>
 <script id="qvadis-perf-hook">
-/* Rendimiento: anula el dibujo de la camara simulada (canvas 60fps) */
-try{ drawCam=function(){}; }catch(e){}
-try{ window.drawCam=function(){}; }catch(e){}
 try{ document.body.classList.add('no-cam'); }catch(e){}
 </script>
 <style id="qvadis-wx-hook">
@@ -822,10 +750,10 @@ body.no-cam [data-cam] .camoff{display:none!important}
 .wx-days{display:flex;gap:6px;flex:1}
 .wx-day{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:12px;
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:6px 2px;min-width:0}
-.wx-day .d{font-size:11px;color:var(--muted)}
+.wx-day .d{font-size:12px;color:var(--muted)}
 .wx-day .ic{width:26px;height:26px}
 .wx-day .mx{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
-.wx-day .mn{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums}
+.wx-day .mn{font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums}
 #wxres .setrow{cursor:pointer}
 </style>
 <script id="qvadis-wx-hook-js">
@@ -857,8 +785,7 @@ body.no-cam [data-cam] .camoff{display:none!important}
   function renderWx(d){
     if(!d||!d.daily)return;
     var dd=d.daily,n=Math.min(dd.time.length,5);
-    var now=d.current?Math.round(d.current.temperature_2m)+'°':'';
-    var h='<div class="wx-head"><span>'+((d.place||'Tiempo').split(',')[0])+'</span><span class="now">'+now+'</span></div><div class="wx-days">';
+    var h='<div class="wx-days">';
     for(var i=0;i<n;i++){
       var dt=new Date(dd.time[i]+'T00:00');
       var lbl=i===0?'Hoy':(i===1?'Mañana':DOW[dt.getDay()]);
@@ -922,10 +849,6 @@ body.no-cam .cam-label, body.no-cam .live, body.no-cam .cam-ts{display:none!impo
   function relabel(){
     if(!document.body.classList.contains('no-cam'))return;
     var sl=document.querySelector('#s-home .sectlabel'); if(sl&&sl.textContent!=='El tiempo')sl.textContent='El tiempo';
-    var h=document.querySelector('#s-cam h2.title'); if(h&&h.textContent!=='El tiempo')h.textContent='El tiempo';
-    var cn=document.getElementById('cam-name'); if(cn)cn.textContent='';
-    var tabs=document.getElementById('cam-tabs'); if(tabs)tabs.style.display='none';
-    document.querySelectorAll('#s-cam .actions').forEach(function(a){a.style.display='none';});
   }
   relabel(); setInterval(relabel,1500);
   // 2) Teclado en pantalla para la ubicacion del tiempo
@@ -993,26 +916,27 @@ body.cam-on .wx-panel{display:none!important}
     if(!w.querySelector('.cam-note')){var nt=document.createElement('div');nt.className='cam-note';w.appendChild(nt);}
   });
   var snapTimer=null, lastSrc='';
-  var CAM_SVG='<svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="4"/></svg>';
-  var WX_SVG='<svg viewBox="0 0 24 24"><path d="M7 18h10a4 4 0 0 0 0-8 6 6 0 0 0-11-2 4 4 0 0 0 1 10Z"/></svg>';
-  function updateNav(on){
-    var b=document.querySelector('.nav button[data-t="cam"]');
-    if(!b)return;
-    var want=on?(CAM_SVG+'Cámara'):(WX_SVG+'Tiempo');
-    if(b.innerHTML.replace(/\s+/g,'')!==want.replace(/\s+/g,'')) b.innerHTML=want;
-  }
   // Mostrar la cámara SIN parpadeo: en el WebKit del kiosco un <img> con multipart
   // (stream.mjpg) parpadea porque se borra entre fotogramas. En su lugar hacemos POLLING con
   // DOBLE BÚFER: precargamos el siguiente fotograma (frame.jpg) en una Image oculta y, cuando
   // ya está decodificado, lo asignamos (desde caché) a los <img> visibles → intercambio limpio.
   var camPollTimer=null, camPolling=false, camSrcBase='';
   function stopCamPoll(){ camPolling=false; if(camPollTimer){clearTimeout(camPollTimer);camPollTimer=null;} }
+  // Dibuja el fotograma manteniendo la PROPORCIÓN (letterbox): ajusta el búfer del canvas a su
+  // tamaño real en pantalla (evita que el CSS deforme) y centra la imagen con bordes negros.
+  function camDraw(cv,img){
+    if(!cv)return; var dw=cv.clientWidth, dh=cv.clientHeight; if(!dw||!dh)return; // oculto: no dibujar
+    if(cv.width!==dw)cv.width=dw; if(cv.height!==dh)cv.height=dh;
+    var ctx=cv.getContext('2d'); ctx.clearRect(0,0,dw,dh);
+    var iw=img.naturalWidth||img.width, ih=img.naturalHeight||img.height; if(!iw||!ih)return;
+    var s=Math.min(dw/iw,dh/ih), w=iw*s, h=ih*s;
+    try{ ctx.drawImage(img,(dw-w)/2,(dh-h)/2,w,h); }catch(e){}
+  }
   function camPollOnce(){
     if(!camPolling)return;
     var pre=new Image();
     pre.onload=function(){ if(!camPolling)return;
-      // drawImage en canvas = pintado atómico (sin borrado entre fotogramas) -> cero parpadeo.
-      document.querySelectorAll('.camwrap canvas').forEach(function(cv){ try{ cv.getContext('2d').drawImage(pre,0,0,cv.width,cv.height); }catch(e){} });
+      document.querySelectorAll('.camwrap canvas').forEach(function(cv){ camDraw(cv,pre); });  // canvas = sin parpadeo; letterbox = sin distorsión
       camPollTimer=setTimeout(camPollOnce,200);
     };
     pre.onerror=function(){ if(!camPolling)return; camPollTimer=setTimeout(camPollOnce,1000); };
@@ -1034,10 +958,9 @@ body.cam-on .wx-panel{display:none!important}
         document.querySelectorAll('.camwrap .wx-panel').forEach(function(n){ n.style.display=''; });
         document.querySelectorAll('.cam-stream').forEach(function(im){im.style.display='none';im.removeAttribute('src');});
       }
-      updateNav(document.body.classList.contains('cam-on'));
     }).catch(function(){});
   }
-  applyCamera(); setInterval(function(){ updateNav(document.body.classList.contains('cam-on')); }, 2000);
+  applyCamera();
   // Pausa/reanuda el stream MJPEG segun el estado de pantalla (el manager avisa por SSE):
   // con la pantalla apagada no tiene sentido mantener ffmpeg transcodificando en la placa.
   window.applyCamera=applyCamera;
@@ -1129,7 +1052,6 @@ body.kbd-open #wxres{max-height:90px}
 <style id="qvadis-wxfull">
 #wx-full{display:none;flex-direction:column;gap:14px}
 body.no-cam #wx-full{display:flex}
-body.no-cam #s-cam .camwrap{display:none!important}
 .wxf-cur{display:flex;align-items:center;gap:14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px}
 .wxf-cur .ic{width:60px;height:60px;flex:none}
 .wxf-cur .t{font-family:var(--display);font-size:46px;font-weight:500;line-height:1;font-variant-numeric:tabular-nums}
@@ -1138,7 +1060,7 @@ body.no-cam #s-cam .camwrap{display:none!important}
 .wxf-hours{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
 .wxf-hours::-webkit-scrollbar{height:0}
 .wxf-h{flex:none;width:58px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:10px 0;display:flex;flex-direction:column;align-items:center;gap:5px}
-.wxf-h .hh{font-size:11px;color:var(--muted)}
+.wxf-h .hh{font-size:12px;color:var(--muted)}
 .wxf-h .ic{width:24px;height:24px}
 .wxf-h .tt{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums}
 .wxf-days{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:4px 14px}
@@ -1268,7 +1190,7 @@ h2.title{font-size:26px}
 
 /* Navegación inferior (clave para legibilidad) */
 .nav button{font-size:12.5px;padding:11px 0 13px;gap:5px}
-.nav button svg{width:28px;height:28px;stroke-width:1.8}
+.nav button svg{width:28px;height:28px;stroke-width:2.1}
 
 /* Overlay de llamada */
 .ov-top .who{font-size:30px}
@@ -1410,7 +1332,7 @@ h2.title{font-size:26px}
 
   // 7) WiFi real (quitar redes falsas y compartir-contraseña)
   function fillWifi(){ api('/api/wifi').then(function(w){ var mv=document.querySelector('#s-set .setrow[onclick*="wifi"] .val'); if(mv)mv.textContent=w.ssid||'Sin conexión'; var sc=document.getElementById('s-wifi'); if(!sc)return; var card=sc.querySelector('.card'); if(card){
-      card.innerHTML='<div class="row" style="padding:8px 0"><div class="av" style="background:var(--raised)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8"><path d="M2 8.5a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M8.5 15.5a6 6 0 0 1 7 0"/><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/></svg></div><div><div class="nm">'+(w.ssid||'—')+'</div><div class="sub">'+(w.ssid?('Conectado · '+w.signal+' dBm'):'Sin conexión')+'</div></div></div>'; }
+      card.innerHTML='<div class="row" style="padding:8px 0"><div class="av" style="background:var(--raised)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.1"><path d="M2 8.5a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M8.5 15.5a6 6 0 0 1 7 0"/><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/></svg></div><div><div class="nm">'+(w.ssid||'—')+'</div><div class="sub">'+(w.ssid?('Conectado · '+w.signal+' dBm'):'Sin conexión')+'</div></div></div>'; }
     // ocultar lo demás (redes inventadas, compartir WiFi con contraseña)
     var kids=sc.children, keep=0;
     for(var i=0;i<kids.length;i++){ var el=kids[i]; if(el.id==='wifi-change-card'||el.id==='wifi-change-label'||el.id==='ip-config-card'||el.id==='ip-config-label'){continue;} if(el.classList.contains('card')&&keep===0){keep=1;continue;} if(el.classList.contains('subhead')||el.tagName==='H2'){continue;} if(el.classList.contains('card')||el.classList.contains('sectlabel')||el.classList.contains('abtn')){el.style.display='none';} }
@@ -1873,7 +1795,7 @@ h2.title{font-size:26px}
 .open-row{display:flex;gap:10px;align-items:center}
 .open-row .slide{flex:1}
 .talk-btn{flex:none;width:60px;height:60px;border-radius:50%;background:var(--surface2);border:2px solid var(--accent);display:grid;place-items:center;cursor:pointer;box-sizing:border-box}
-.talk-btn svg{width:26px;height:26px;stroke:var(--accent);fill:none;stroke-width:1.8}
+.talk-btn svg{width:26px;height:26px;stroke:var(--accent);fill:none;stroke-width:2.1}
 .talk-btn:active{transform:scale(.96)}
 </style>
 <script id="qvadis-audio-js">
