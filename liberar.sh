@@ -8,7 +8,8 @@
 #    de RPi OS, el arranque del stock (p2) DEJA DE FUNCIONAR. No hay rollback al stock sin
 #    re-flashear con una IO board. EL UNICO SEGURO ES EL BACKUP COMPLETO de la eMMC.
 #  - NO PROBADO en banco (la unidad de desarrollo ya estaba liberada). Revisa antes de usar.
-#  - Ejecutar como root en el stock, por SSH (clave service.qvadis).
+#  - Ejecutar como root en el stock, por SSH. Las credenciales/clave de acceso al stock
+#    NO se incluyen aqui: consiguelas por tus medios (foros/comunidad) y usalas solo en tu equipo.
 #
 # Uso (en el equipo stock):
 #   sudo IMG=/ruta/raspios-lite.img.xz ./liberar.sh

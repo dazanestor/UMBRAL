@@ -39,7 +39,7 @@ say "Raiz actual: $ROOTPUUID (prefijo $PFX)"
 
 # ---------- 1) dependencias ----------
 PKGS="cog libwpewebkit-2.0-1 libgles2 fontconfig fonts-inter \
-asterisk baresip alsa-utils pigpio ffmpeg iw rsync wpasupplicant fail2ban nftables \
+asterisk baresip alsa-utils pigpio ffmpeg iw rfkill rsync wpasupplicant fail2ban nftables \
 pulseaudio pulseaudio-utils \
 plymouth plymouth-themes wpa_supplicant"
 say "instalando dependencias (apt)..."
