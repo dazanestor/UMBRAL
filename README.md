@@ -215,7 +215,12 @@ Para contestar y abrir **desde fuera**, sin nube de pago, autoalojado. Resumen:
   - **HTTPS `8443/tcp`** — cámara y abrir puerta, **con token** por móvil.
   - **Para el audio de las llamadas**: rango **RTP `10000‑10020/udp`** (mínimo; antes 10000‑20000).
   - **El SSH (22) NO se expone nunca.**
-- **Dominio/DDNS**: configúralo en **Ajustes → Acceso remoto** (DuckDNS o URL genérica). La placa actualiza tu IP pública sola.
+- **Dominio/DDNS**: para tener un nombre fijo aunque tu IP cambie. Con **DuckDNS** (gratis):
+  1. Entra en **[duckdns.org](https://www.duckdns.org)** e inicia sesión con una cuenta (Google, GitHub, etc.).
+  2. Crea un **subdominio** (p. ej. `tucasa.duckdns.org`) y copia el **token** que te muestra arriba.
+  3. En el panel, **Ajustes → Acceso remoto**: elige *DuckDNS*, pon el **dominio** y el **token**. La placa actualizará tu IP pública sola.
+
+  (También admite una URL de actualización genérica de otro proveedor de DDNS.)
 - **Certificado TLS**: autofirmado; la **app lo fija por pinning** (no hace falta Let's Encrypt). Su huella se entrega al emparejar.
 - **Notificaciones push (FCM)**: al sonar el timbre, la placa despierta la app aunque esté en reposo. Requiere colocar tu `fcm-service-account.json` (de tu proyecto Firebase) en `/var/lib/qvadis/`. Sin él, el push queda desactivado (el resto funciona en LAN).
 
