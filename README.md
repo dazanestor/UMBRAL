@@ -36,7 +36,7 @@ Este proyecto sustituye el sistema de fábrica por **Raspberry Pi OS Lite** + un
 - **Pantalla táctil** 800×480 (rotada), con kiosco a pantalla completa (sin navegador visible), **arranque silencioso con logo** (no sale consola).
 - **Videoportero**: cuando llaman desde la calle **suena en la pantalla y en los móviles** a la vez; se contesta en cualquiera, se habla y **se abre la puerta**.
 - **Llamadas recientes** con **foto del visitante** (autocaptura al sonar; se guardan **30 días**).
-- **Cámara** IP (MJPEG o RTSP transcodificado) cuando la hay; si no, se muestra **el tiempo**.
+- **Cámara IP externa opcional** — el equipo **no incluye cámara**; hay que instalar una **cámara IP** (en la puerta/calle). Admite **MJPEG**, **snapshot JPEG por HTTP** o **RTSP** (transcodificado en la placa con ffmpeg). Añadir una cámara convierte el portero (solo audio) en un **videoportero completo**: la imagen aparece en Inicio y de fondo en la llamada (panel y app). Si no hay cámara, se muestra **el tiempo**.
 - **Puertas**: principal + auxiliar (relé) por GPIO.
 - **Ajustes en pantalla** (teclado táctil): WiFi (con búsqueda), fecha/hora (auto o manual), brillo/apagado por inactividad y proximidad, volumen y micrófono, PIN, No molestar, acceso remoto/DDNS, actualizaciones.
 - **Emparejar móviles** desde la pantalla: cada emparejamiento crea una **cuenta SIP** nueva con su **QR**.
@@ -55,6 +55,18 @@ Pantallas reales del panel (datos de ejemplo):
 | **Volúmenes** | **Pantalla** | **No molestar** |
 | ![Volúmenes](docs/screenshots/04-volumenes.png) | ![Pantalla](docs/screenshots/05-pantalla.png) | ![No molestar](docs/screenshots/06-no-molestar.png) |
 
+Con cámara configurada — panel (caras del stream de demo difuminadas):
+
+| Inicio con cámara | Llamada |
+|:---:|:---:|
+| ![Inicio con cámara](docs/screenshots/07-inicio-camara.png) | ![Llamada en el panel](docs/screenshots/08-llamada-camara.png) |
+
+App móvil (Android):
+
+| Inicio | Actividad | Ajustes | Llamada entrante |
+|:---:|:---:|:---:|:---:|
+| ![App inicio](docs/screenshots/09-app-inicio.png) | ![App actividad](docs/screenshots/11-app-actividad.png) | ![App ajustes](docs/screenshots/12-app-ajustes.png) | ![App llamada](docs/screenshots/10-app-llamada.png) |
+
 ---
 
 ## Hardware soportado
@@ -64,7 +76,7 @@ Pantallas reales del panel (datos de ejemplo):
 - WiFi: **RTL8723BU** (interno de la placa portadora). Es un combo WiFi+Bluetooth; el **Bluetooth se deshabilita** a propósito (no se usa y su coexistencia en 2.4 GHz desestabiliza el WiFi).
 - Retroiluminación en **GPIO7** (PWM invertido). Puertas en **GPIO24** (principal) y **GPIO26** (auxiliar). Timbre en **GPIO25**. Presencia (PIR) en **GPIO9**.
 
-> El **adaptador QDS** (Qvadis DS Adapter, para porteros **Fermax ADS/VDS**) es un **módulo opcional** de audio. No es necesario: la función de "calle" se cubre con una placa IP (SIP) o un botón + abrepuertas por GPIO y una **cámara IP**.
+> El **adaptador QDS** (Qvadis DS Adapter) es un **módulo físico externo opcional**, específico de los porteros **Fermax ADS/VDS** (solo audio). Su integración **todavía no está soportada** (ver [Limitaciones y hoja de ruta](#limitaciones-y-hoja-de-ruta)) y **no es necesaria**: la función de "calle" se cubre con una fuente **IP (SIP)** o con un **botón + abrepuertas por GPIO** más una **cámara IP** externa.
 
 ---
 
@@ -155,6 +167,7 @@ Toca el icono de ajustes. Todo se escribe con el **teclado en pantalla**.
 - **No molestar**: silencia el timbre (manual o por horario).
 - **Móviles emparejados**: lista de móviles y **Emparejar** (QR). Quitar con la ✕.
 - **Puerta auxiliar**: activa/renombra la 2ª puerta (relé). Al activarla aparece su deslizable en Inicio.
+- **Cámara**: opcional y **externa** (el equipo no trae cámara). Pega la **URL del stream** de una **cámara IP**: **MJPEG**, **snapshot JPEG por HTTP** o **RTSP** (se transcodifica en la placa). Con cámara, la imagen se ve en Inicio y de fondo al llamar — convierte el portero en un **videoportero completo**. Sin cámara, Inicio muestra el tiempo.
 - **Acceso remoto**: dominio/DDNS, IP pública y estado del push (ver abajo).
 - **Actualización**: buscar/instalar actualizaciones; interruptor para desactivarlas.
 
