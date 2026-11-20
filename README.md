@@ -73,6 +73,8 @@ La liberación se hace **por SSH, sin hardware adicional**. Dos pasos:
 ### 1) `liberar.sh` — del sistema de fábrica a Raspberry Pi OS
 En un equipo de fábrica accesible por SSH, instala Raspberry Pi OS Lite en la partición libre y conmuta el arranque.
 
+> 🔑 **Acceso al equipo de fábrica (SSH):** la liberación necesita acceso *root* por SSH al sistema de stock. Las **credenciales/clave de servicio NO se incluyen en este repositorio** (son parte del firmware propietario y una misma clave podría abrir equipos de otras personas). Cada usuario debe **conseguirlas por sus propios medios** —hilos y foros de la comunidad, grupos de Telegram, etc.— y usarlas **únicamente en equipos de su propiedad**. Como alternativa sin esa clave: acceso físico a la eMMC con **IO board + `rpiboot`** para resetear la contraseña en `/etc/shadow` o añadir tu propia clave SSH.
+
 ```bash
 sudo IMG=/ruta/raspios-lite-armhf.img.xz ./liberar.sh
 ```
