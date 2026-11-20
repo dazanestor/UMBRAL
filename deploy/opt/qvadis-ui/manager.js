@@ -756,7 +756,7 @@ function handler(req, res, remote) {
     const model = (readFileSafe('/proc/device-tree/model').replace(/\0/g, '').trim()) || (/Model\s*:\s*(.+)/.exec(ci) || [])[1] || '';
     const tz = readFileSafe('/etc/timezone').trim() || (Intl.DateTimeFormat().resolvedOptions().timeZone || '');
     const camera = !!(CFG.camera && CFG.camera.enabled && CFG.camera.url);
-    return J({ hostname: os.hostname(), serial, model, timezone: tz, fw: 'Qvadis abierto 1.0', kernel: os.release(), host: lanIP(), sipExt: '1001', sipPort: 5060, camera });
+    return J({ hostname: os.hostname(), serial, model, timezone: tz, fw: readFileSafe('/etc/qvadis-version').trim() || '—', kernel: os.release(), host: lanIP(), sipExt: '1001', sipPort: 5060, camera });
   }
   if (u.pathname === '/api/wifi') { wifiInfo().then(J); return; }
   if (u.pathname === '/api/wifi/scan') {
