@@ -79,7 +79,8 @@ prepare_inactive(){ INACT=$(inactive_puuid); DEV=$(dev_of "$INACT")
   sed -i "/[[:space:]]\/[[:space:]].*ext4/ s/PARTUUID=[0-9a-f-]*/PARTUUID=$INACT/" "$MNT/etc/fstab"; }
 
 apply_overlay(){ local src="$1" d
-  for d in $OVERLAY_DIRS; do [ -d "$src/deploy/$d" ] && rsync -aHAX "${OVX[@]}" "$src/deploy/$d/" "$MNT/$d/" 2>>"$LOG"; done; }
+  for d in $OVERLAY_DIRS; do [ -d "$src/deploy/$d" ] && rsync -aHAX "${OVX[@]}" "$src/deploy/$d/" "$MNT/$d/" 2>>"$LOG"; done
+  chmod 0755 "$MNT"/usr/local/sbin/qvadis-* 2>>"$LOG" || true; }   # el tarball puede traer modos sin exec
 
 finalize(){ local ver="$1" kind="$2"
   echo "$ver" > "$MNT$VERSION_FILE"; sync; umount "$MNT"
