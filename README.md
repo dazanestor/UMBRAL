@@ -267,7 +267,7 @@ Proyecto comunitario de reparación y reutilización, **sin ánimo de lucro** y 
 
 **Licencias (por componente):**
 
-- **Pila de la placa** (`manager.js`, `deploy/`, scripts, UI del panel): **[PolyForm Noncommercial License 1.0.0](LICENSE)** — puedes **usar, estudiar, modificar y compartir** libremente **para fines no comerciales**. **Nadie puede cobrar ni vender** productos o servicios basados en esta parte. Es *source-available* **no comercial** (no una licencia OSI clásica, precisamente porque esas sí permiten el uso comercial).
+- **Pila de la placa** (`manager.js`, `deploy/`, scripts, UI del panel): **[PolyForm Noncommercial License 1.0.0](LICENSE)** — puedes **usar, estudiar, modificar y compartir** libremente **para fines no comerciales**. **Nadie puede cobrar ni vender** productos o servicios basados en esta parte. Es *source-available* **no comercial**.
 - **App Android** (`android/`) y el **APK** distribuido: **[GPLv3](android/LICENSE)**.
 
 Componentes de terceros y sus licencias: ver [`THIRD-PARTY-NOTICES.txt`](THIRD-PARTY-NOTICES.txt).
