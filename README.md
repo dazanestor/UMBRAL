@@ -97,7 +97,7 @@ sudo IMG=/ruta/raspios-lite-armhf.img.xz ./liberar.sh
 > ```bash
 > ssh root@<ip-de-la-pantalla> 'dd if=/dev/mmcblk0 bs=4M | gzip -1' > qvadis-backup.img.gz
 > ```
-> Sin IP pública tras CGNAT no afecta a este paso. La recuperación de un arranque roto requiere `rpiboot` + IO board.
+> La recuperación de un arranque roto requiere `rpiboot` + IO board.
 
 ### 2) `install.sh` — provisionar la pila Qvadis
 Ya con Raspberry Pi OS Lite arrancado en la placa, desde la raíz de este repo:
