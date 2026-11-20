@@ -178,10 +178,31 @@ App Android nativa que convierte el móvil en un telefonillo del videoportero. C
 - **Descarga (APK):** [**umbral.apk** (última Release)](https://github.com/dazanestor/UMBRAL/releases/latest/download/umbral.apk) — *release* firmada para `arm64‑v8a`. Instálalo activando *"orígenes desconocidos"* en el móvil.
 - **Qué hace:** recibe la llamada a pantalla completa con el **vídeo de la cámara** de fondo, **atender/colgar/abrir**, manos libres y silencio; **abrir con huella/PIN**; historial con fotos; y un **widget** de apertura rápida. Sigue registrada (servicio en primer plano) con **push FCM** de respaldo.
 - **Emparejar:** **Ajustes → Móviles emparejados → Emparejar** en el panel y **escanea el QR** con la app; se autoconfigura (cuenta SIP, puertos, dominio y huella del certificado).
-- **Compilar desde cero:** `cd android && ./build.sh` (descarga JDK 17 + Gradle portables). Para el push necesitas tu propio **`google-services.json`** (crea un proyecto en Firebase con el *package* `es.qvadis.app`, descarga el fichero y ponlo en `android/app/`); por eso no se incluye en el repo.
+- **Compilar / push propio:** ver [**Compilar la app**](#compilar-la-app-e-instalar-el-push-firebase) más abajo.
 - **Licencia:** la app y el APK están bajo **GPLv3** (enlazan Linphone GPLv3) — ver [`android/LICENSE`](android/LICENSE).
 
 > La app de fábrica de Qvadis (nube cerrada) **no** sirve; UMBRAL la sustituye y habla solo con **tu** placa.
+
+### Compilar la app e instalar el push (Firebase)
+
+La app **no incluye `google-services.json`** (es la configuración de *tu* proyecto Firebase; cada usuario usa el suyo). Para compilarla **con notificaciones push**:
+
+1. **Crea un proyecto** en [Firebase Console](https://console.firebase.google.com) (gratis).
+2. **Añade una app Android** con el *package name* exacto **`es.qvadis.app`**.
+3. **Descarga `google-services.json`** y colócalo en **`android/app/google-services.json`**.
+4. En la **placa**, coloca la *service account* de **ese mismo** proyecto en **`/var/lib/qvadis/fcm-service-account.json`** (es lo que usa el panel para enviar el push). Se genera en Firebase → *Configuración del proyecto* → *Cuentas de servicio* → *Generar nueva clave privada*.
+5. **Compila** (la primera vez descarga JDK 17 + Gradle portables):
+
+```bash
+cd android
+./build.sh           # APK de depuración, instalable: app/build/outputs/apk/debug/app-debug.apk
+./build.sh release   # APK de release (requiere tu propio keystore de firma)
+```
+
+**Notas:**
+- Sin `google-services.json`, el plugin de Google de Gradle **falla al compilar**: créalo primero. Sin la *service account* en la placa, el push queda desactivado pero el resto funciona en la red local.
+- El APK publicado en *Releases* es `arm64-v8a` (procesadores de 64 bits, los habituales).
+- Para *release* firmada necesitas tu propio *keystore* (`keytool -genkeypair`); no se incluye el del autor.
 
 ---
 
