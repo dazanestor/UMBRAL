@@ -776,18 +776,23 @@ let tT;function toast(msg){const t=document.getElementById('toast');t.textConten
   var answered=false;   // true tras pulsar Atender en el panel (atender cuelga baresip -> cortar moviles)
   // Stream en vivo DENTRO del overlay (para ver al visitante antes de atender/colgar). Solo mientras
   // el overlay esta visible, para no mantener ffmpeg abierto en la placa fuera de llamada.
-  var ovStream=document.getElementById('ov-stream'), ovWant=false;
+  var ovStream=document.getElementById('ov-stream'), ovWant=false, ovPollTimer=null;
+  var ovCanvas=document.querySelector('#ov-call .ov-cam canvas');
+  function ovPollOnce(base){
+    if(!ovWant)return;
+    var pre=new Image();
+    pre.onload=function(){ if(!ovWant)return; if(ovCanvas){ try{ ovCanvas.getContext('2d').drawImage(pre,0,0,ovCanvas.width,ovCanvas.height);}catch(e){} } ovPollTimer=setTimeout(function(){ovPollOnce(base);},200); };
+    pre.onerror=function(){ if(!ovWant)return; ovPollTimer=setTimeout(function(){ovPollOnce(base);},1000); };
+    pre.src=base+(base.indexOf('?')<0?'?':'&')+'t='+Date.now();
+  }
   function ovCamStart(){
-    if(!ovStream)return; ovWant=true;
+    ovWant=true;
     fetch('/api/camera').then(function(r){return r.json();}).then(function(c){
       if(!ovWant)return;                       // el overlay se cerro mientras se consultaba
-      if(c&&c.enabled&&c.url){
-        var u=(c.type==='snapshot')?(c.url+(c.url.indexOf('?')<0?'?':'&')+'t='+Date.now()):('/api/camera/stream.mjpg?t='+Date.now());
-        ovStream.src=u; ovStream.classList.add('on');
-      } else { ovStream.classList.remove('on'); ovStream.removeAttribute('src'); }
+      if(c&&c.enabled&&c.url){ document.body.classList.remove('no-cam'); ovPollOnce((c.type==='snapshot')?c.url:'/api/camera/frame.jpg'); }  // canvas, sin parpadeo
     }).catch(function(){});
   }
-  function ovCamStop(){ ovWant=false; if(ovStream){ ovStream.classList.remove('on'); ovStream.removeAttribute('src'); } }
+  function ovCamStop(){ ovWant=false; if(ovPollTimer){clearTimeout(ovPollTimer);ovPollTimer=null;} if(ovCanvas){ try{ ovCanvas.getContext('2d').clearRect(0,0,ovCanvas.width,ovCanvas.height);}catch(e){} } }
   document.querySelectorAll('#ov-call .round.ans').forEach(function(b){ b.addEventListener('click',function(){ post('/api/call/answer'); showActive(); }); });
   document.querySelectorAll('#ov-call .round.hang').forEach(function(b){ b.addEventListener('click',function(){ post('/api/call/hangup'); hideCall(); }); });
   function showIncoming(){ answered=false; if(who)who.textContent='Puerta'; if(st)st.textContent='Llamada entrante…'; if(inc)inc.hidden=false; if(act)act.hidden=true; if(ov)ov.hidden=false; var mic=document.getElementById('micbtn'); if(mic){ mic.classList.remove('active'); var sv=mic.querySelector('.ic svg'); if(sv&&typeof MIC_ON_SVG!=='undefined')sv.innerHTML=MIC_ON_SVG; } ovCamStart(); }
@@ -996,25 +1001,38 @@ body.cam-on .wx-panel{display:none!important}
     var want=on?(CAM_SVG+'Cámara'):(WX_SVG+'Tiempo');
     if(b.innerHTML.replace(/\s+/g,'')!==want.replace(/\s+/g,'')) b.innerHTML=want;
   }
+  // Mostrar la cámara SIN parpadeo: en el WebKit del kiosco un <img> con multipart
+  // (stream.mjpg) parpadea porque se borra entre fotogramas. En su lugar hacemos POLLING con
+  // DOBLE BÚFER: precargamos el siguiente fotograma (frame.jpg) en una Image oculta y, cuando
+  // ya está decodificado, lo asignamos (desde caché) a los <img> visibles → intercambio limpio.
+  var camPollTimer=null, camPolling=false, camSrcBase='';
+  function stopCamPoll(){ camPolling=false; if(camPollTimer){clearTimeout(camPollTimer);camPollTimer=null;} }
+  function camPollOnce(){
+    if(!camPolling)return;
+    var pre=new Image();
+    pre.onload=function(){ if(!camPolling)return;
+      // drawImage en canvas = pintado atómico (sin borrado entre fotogramas) -> cero parpadeo.
+      document.querySelectorAll('.camwrap canvas').forEach(function(cv){ try{ cv.getContext('2d').drawImage(pre,0,0,cv.width,cv.height); }catch(e){} });
+      camPollTimer=setTimeout(camPollOnce,200);
+    };
+    pre.onerror=function(){ if(!camPolling)return; camPollTimer=setTimeout(camPollOnce,1000); };
+    pre.src=camSrcBase+(camSrcBase.indexOf('?')<0?'?':'&')+'t='+Date.now();
+  }
   function applyCamera(){
     fetch('/api/camera').then(function(r){return r.json();}).then(function(c){
       if(snapTimer){clearInterval(snapTimer);snapTimer=null;}
+      stopCamPoll();
       if(c.enabled && c.url){
-        document.body.classList.add('cam-on');
-        if(c.type==='rtsp'){
-          document.querySelectorAll('.cam-note').forEach(function(n){n.style.display='none';});
-          document.querySelectorAll('.cam-stream').forEach(function(im){ if(im.src.indexOf('/api/camera/stream.mjpg')<0)im.src='/api/camera/stream.mjpg?t='+Date.now(); im.style.display='block'; });
-        } else {
-          document.querySelectorAll('.cam-note').forEach(function(n){n.style.display='none';});
-          document.querySelectorAll('.cam-stream').forEach(function(im){ if(im.src!==c.url){im.src=c.url;} im.style.display='block'; });
-          if(c.type==='snapshot'){
-            snapTimer=setInterval(function(){ var u=c.url+(c.url.indexOf('?')<0?'?':'&')+'t='+Date.now(); document.querySelectorAll('.cam-stream').forEach(function(im){im.src=u;}); },1000);
-          }
-        }
+        document.body.classList.add('cam-on'); document.body.classList.remove('no-cam');  // canvas visible, oculta weather
+        // ocultar capas que taparían el canvas (img multipart ya no se usa)
+        document.querySelectorAll('.cam-stream').forEach(function(im){ im.style.display='none'; im.removeAttribute('src'); });
+        document.querySelectorAll('.camwrap .wx-panel, .camwrap .camoff, .cam-note').forEach(function(n){ n.style.display='none'; });
+        camSrcBase=(c.type==='snapshot')?c.url:'/api/camera/frame.jpg';
+        camPolling=true; camPollOnce();
       } else {
-        document.body.classList.remove('cam-on');
+        document.body.classList.remove('cam-on'); document.body.classList.add('no-cam');
+        document.querySelectorAll('.camwrap .wx-panel').forEach(function(n){ n.style.display=''; });
         document.querySelectorAll('.cam-stream').forEach(function(im){im.style.display='none';im.removeAttribute('src');});
-        document.querySelectorAll('.cam-note').forEach(function(n){n.style.display='none';});
       }
       updateNav(document.body.classList.contains('cam-on'));
     }).catch(function(){});
@@ -1023,7 +1041,7 @@ body.cam-on .wx-panel{display:none!important}
   // Pausa/reanuda el stream MJPEG segun el estado de pantalla (el manager avisa por SSE):
   // con la pantalla apagada no tiene sentido mantener ffmpeg transcodificando en la placa.
   window.applyCamera=applyCamera;
-  window.pauseCamStream=function(){ if(snapTimer){clearInterval(snapTimer);snapTimer=null;} document.querySelectorAll('.cam-stream').forEach(function(im){ im.removeAttribute('src'); }); };
+  window.pauseCamStream=function(){ stopCamPoll(); if(snapTimer){clearInterval(snapTimer);snapTimer=null;} document.querySelectorAll('.cam-stream').forEach(function(im){ im.removeAttribute('src'); }); };
   // modal config camara
   var modal=document.createElement('div');modal.id='camcfg-modal';modal.className='modal';modal.hidden=true;
   modal.innerHTML='<div class="box"><h3>Cámara</h3><p>URL del stream (MJPEG/snapshot HTTP; RTSP necesita transcodificación).</p>'+

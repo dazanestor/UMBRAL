@@ -108,7 +108,7 @@ function writeMobilesConfig() {
   ast('pjsip reload'); ast('dialplan reload');
 }
 // Acceso remoto (listener HTTPS): SOLO estos endpoints, y con token de un móvil emparejado.
-const REMOTE_PATHS = ['/api/health', '/api/door/open', '/api/camera/stream.mjpg', '/api/snap', '/api/calls', '/api/calls/ack', '/api/device', '/api/cert', '/api/mobiles/fcm',
+const REMOTE_PATHS = ['/api/health', '/api/door/open', '/api/camera/stream.mjpg', '/api/camera/frame.jpg', '/api/snap', '/api/calls', '/api/calls/ack', '/api/device', '/api/cert', '/api/mobiles/fcm',
   // ajustes del portero manejables desde la app (con token de móvil): volúmenes, timbre, no molestar
   '/api/audio', '/api/audio/set', '/api/ringtone', '/api/ringtone/set', '/api/dnd', '/api/dnd/set'];
 let CERT_FP = '';
@@ -464,26 +464,40 @@ setInterval(() => {
 // (muchas cámaras/tokens permiten solo UNA) + doble transcodificación en la CM3+ -> parpadeo.
 // Ahora un único ffmpeg lee el origen y difunde su salida mpjpeg a todos los clientes.
 let camFF = null, camClients = [], camStopTimer = null;
+let camBuf = Buffer.alloc(0), camLastFrame = null, camLastPoll = 0, camFailUntil = 0;
+const JPEG_SOI = Buffer.from([0xFF, 0xD8]), JPEG_EOI = Buffer.from([0xFF, 0xD9]);
 function camStart() {
   if (camFF) return;
+  if (Date.now() < camFailUntil) return;   // backoff: si el origen está caído, no machacar ffmpeg
   const c = CFG.camera || {};
   if (!c.enabled || !c.url) return;
   const args = ['-nostdin', '-loglevel', 'error'];
   if (/^rtsp:/i.test(c.url)) args.push('-rtsp_transport', 'tcp');
   args.push('-i', c.url, '-f', 'mpjpeg', '-q:v', '5', '-r', '12', '-');
-  try { camFF = spawn('ffmpeg', args); } catch (e) { camFF = null; return; }
-  camFF.stdout.on('data', (chunk) => { for (const r of camClients) { try { r.write(chunk); } catch (e) {} } });
+  let gotFrame = false;
+  try { camFF = spawn('ffmpeg', args); } catch (e) { camFF = null; camFailUntil = Date.now() + 5000; return; }
+  camFF.stdout.on('data', (chunk) => {
+    for (const r of camClients) { try { r.write(chunk); } catch (e) {} }          // clientes MJPEG (si los hay)
+    camBuf = Buffer.concat([camBuf, chunk]);                                       // último fotograma para frame.jpg
+    if (camBuf.length > 3 * 1048576) camBuf = camBuf.slice(camBuf.length - 1048576);
+    const end = camBuf.lastIndexOf(JPEG_EOI);
+    if (end > 1) { const s = camBuf.lastIndexOf(JPEG_SOI, end); if (s >= 0 && s < end) { camLastFrame = camBuf.slice(s, end + 2); camBuf = camBuf.slice(end + 2); gotFrame = true; } }
+  });
   camFF.stderr.on('data', () => {});
   camFF.on('error', () => { camFF = null; });
-  camFF.on('close', () => { camFF = null; if (camClients.length) setTimeout(camStart, 1500); });
+  camFF.on('close', () => {
+    camFF = null; camBuf = Buffer.alloc(0);
+    if (!gotFrame) camFailUntil = Date.now() + 5000;   // origen caído (p. ej. 401): espera 5 s antes de reintentar
+    if (camClients.length || Date.now() - camLastPoll < 4000) setTimeout(camStart, gotFrame ? 1000 : 5000);
+  });
 }
-function camStopMaybe() {
+function camStopLater() {  // para el ffmpeg si no hay ni clientes MJPEG ni polling reciente de frame.jpg
   clearTimeout(camStopTimer);
   camStopTimer = setTimeout(() => {
-    if (camClients.length === 0 && camFF) { try { camFF.kill('SIGKILL'); } catch (e) {} camFF = null; }
-  }, 2000);
+    if (camFF && camClients.length === 0 && Date.now() - camLastPoll > 3500) { try { camFF.kill('SIGKILL'); } catch (e) {} camFF = null; }
+  }, 3500);
 }
-function camRestart() { if (camFF) { try { camFF.kill('SIGKILL'); } catch (e) {} camFF = null; } } // al cambiar la URL
+function camRestart() { camLastFrame = null; camBuf = Buffer.alloc(0); if (camFF) { try { camFF.kill('SIGKILL'); } catch (e) {} camFF = null; } } // al cambiar la URL
 
 function handler(req, res, remote) {
   let u;
@@ -550,9 +564,18 @@ function handler(req, res, remote) {
     camClients.push(res);          // todos los clientes comparten UN ffmpeg (ver camStart)
     clearTimeout(camStopTimer);
     camStart();
-    const drop = () => { const i = camClients.indexOf(res); if (i >= 0) camClients.splice(i, 1); camStopMaybe(); };
+    const drop = () => { const i = camClients.indexOf(res); if (i >= 0) camClients.splice(i, 1); camStopLater(); };
     req.on('close', drop); res.on('close', drop);
     return;
+  }
+  // Último fotograma JPEG (para mostrar la cámara SIN parpadeo: el panel hace polling con doble
+  // búfer en vez de un <img> multipart, que en WebKit parpadea). Reutiliza el ffmpeg compartido.
+  if (u.pathname === '/api/camera/frame.jpg') {
+    if (!CFG.camera || !CFG.camera.enabled || !CFG.camera.url) { res.writeHead(503); return res.end('no cam'); }
+    camLastPoll = Date.now();
+    camStart(); camStopLater();
+    if (camLastFrame) { res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' }); return res.end(camLastFrame); }
+    res.writeHead(503); return res.end('no frame');
   }
   if (u.pathname === '/api/weather/search') {
     geocode(u.searchParams.get('q') || '')
