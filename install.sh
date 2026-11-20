@@ -56,6 +56,8 @@ rsync -aHAX "$DEPLOY/usr/"  /usr/
 rsync -aHAX "$DEPLOY/var/"  /var/
 rsync -aHAX "$DEPLOY/root/" /root/
 rsync -aHAX "$DEPLOY/etc/"  /etc/
+# Red: DHCP por defecto SOLO si no hay ya un fichero (no se pisa una IP fija; la OTA tampoco lo toca)
+[ -f /etc/systemd/network/10-wlan0.network ] || install -D -m0644 /usr/share/qvadis/10-wlan0.network.default /etc/systemd/network/10-wlan0.network
 chmod 0440 /etc/sudoers.d/qvadis 2>/dev/null || true
 chmod 0755 /usr/local/sbin/qvadis-* 2>/dev/null || true
 mkdir -p /var/lib/qvadis/snaps
