@@ -102,7 +102,7 @@ scripts/preparar-rpios.sh 2026-xx-xx-raspios-trixie-armhf-lite.img.xz rpios-bund
 sudo BUNDLE=/ruta/rpios-bundle.tar ./liberar.sh
 ```
 
-`liberar.sh` pregunta la contraseña del usuario `pi` y tu WiFi, y deja configurado el **primer arranque**: usuario `pi`, SSH y WiFi con `wpa_supplicant@wlan0` + `systemd-networkd` (la placa **no tiene Ethernet**: sin WiFi no podrías entrar). Tras reiniciar, entra por SSH como `pi` (la IP la da tu router) y sigue con el paso 2.
+`liberar.sh` pregunta la contraseña del usuario `pi` y tu WiFi, y deja configurado el **primer arranque**: usuario `pi`, SSH y WiFi con `wpa_supplicant@wlan0` + `systemd-networkd` (la placa **no tiene Ethernet**: sin WiFi no podrías entrar). Tras reiniciar (tarda ~1 min en dar red), entra por SSH como **`pi`** con **la contraseña que escribiste en `liberar.sh`** (no se guarda en ningún sitio: apúntala). La dirección es `ssh pi@raspberrypi.local` si tu PC resuelve `.local` (mDNS) o, si no, la IP que tu router asigne a `raspberrypi`. Si indicaste `SSH_PUBKEY`, también entras con esa clave. Después sigue con el paso 2.
 
 > **Estado de las pruebas:** la lógica de `liberar.sh` se ha probado sobre un **disco simulado** con el layout real de la eMMC (p1 de 64 MB con el boot de fábrica, p2/p3) y el paquete generado desde la imagen de Raspberry Pi OS real. **No se ha probado en una pantalla real ni se ha arrancado el resultado.**
 

@@ -254,6 +254,11 @@ sync
 USED=$(du -sm "$BOOT" | cut -f1); say "uso de $BOOT: ${USED} MB (limite ~64)"
 
 say "LISTO. cmdline -> root=PARTUUID=$SPUUID"
-say "Tras reiniciar arrancara RPi OS Lite. Entra por SSH como 'pi' (la IP la da tu router) y ejecuta install.sh."
+say "Tras reiniciar arrancara RPi OS Lite (tarda ~1 min en dar red). Para entrar:"
+say "    usuario:     pi"
+say "    contraseña:  la que acabas de introducir (NO se guarda en ningun sitio: apuntala)"
+say "    direccion:   ssh pi@raspberrypi.local   (si tu PC resuelve .local) o la IP que el router asigne a 'raspberrypi'"
+[ -n "$SSHKEY" ] && say "    (tambien entra con la clave SSH publica que has indicado)"
+say "Despues copia el repo y ejecuta install.sh."
 if [ "${NO_REBOOT:-0}" = 1 ]; then exit 0; fi
 if confirm "Reiniciar ahora"; then sync; reboot -f; else say "Reinicia con: reboot -f (el inittab del stock puede colgar en reboot limpio)"; fi
