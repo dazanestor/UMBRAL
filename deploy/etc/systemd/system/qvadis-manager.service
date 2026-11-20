@@ -1,0 +1,14 @@
+[Unit]
+Description=Qvadis manager (backend videoportero)
+After=pigpiod.service
+Wants=pigpiod.service
+
+[Service]
+ExecStart=/usr/bin/node /opt/qvadis-ui/manager.js
+WorkingDirectory=/opt/qvadis-ui
+Restart=on-failure
+RestartSec=2
+User=pi
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,54 @@
+// Esqueleto. Ajusta versiones. Requiere google-services.json en app/ (Firebase).
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'com.google.gms.google-services'   // FCM
+}
+
+android {
+    namespace 'es.qvadis.app'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'es.qvadis.app'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '0.1'
+        // Solo arm64: los móviles actuales son arm64-v8a. Evita empaquetar las .so
+        // nativas (sobre todo Linphone) para x86/x86_64/armeabi-v7a y aligera mucho el APK.
+        ndk { abiFilters 'arm64-v8a' }
+    }
+    buildFeatures { viewBinding true }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'androidx.recyclerview:recyclerview:1.3.2'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
+
+    // HTTPS con pinning por huella
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+
+    // SIP (TLS + SRTP + audio). Repo Maven de Linphone (ver settings.gradle).
+    implementation 'org.linphone:linphone-sdk-android:5.3.0'
+
+    // Push
+    implementation platform('com.google.firebase:firebase-bom:33.1.2')
+    implementation 'com.google.firebase:firebase-messaging-ktx'
+
+    // QR
+    implementation 'com.journeyapps:zxing-android-embedded:4.3.0'
+
+    // Credenciales cifradas
+    implementation 'androidx.security:security-crypto:1.1.0-alpha06'
+
+    // Biometría / credencial del dispositivo (widget de apertura rápida segura)
+    implementation 'androidx.biometric:biometric:1.1.0'
+}

@@ -1,0 +1,6 @@
+# Copia a config.local y rellena. Uso: sudo ./install.sh --answers config.local --yes
+WIFI_SSID="MiWiFi"
+WIFI_PASS="mi-contrasena-wifi"
+SIP_PASS="contrasena-sip"
+PANEL_PIN="1234"
+TZ="Europe/Madrid"

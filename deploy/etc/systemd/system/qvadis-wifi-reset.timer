@@ -1,0 +1,9 @@
+[Unit]
+Description=Vigilancia periódica del WiFi (recarga rtl8xxxu si se cae en caliente)
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=2min
+
+[Install]
+WantedBy=timers.target

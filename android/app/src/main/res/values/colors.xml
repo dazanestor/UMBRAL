@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Marca UMBRAL: acento azul sobre tema oscuro. -->
+    <color name="umbral_blue">#1E88E5</color>
+    <color name="umbral_blue_dark">#1565C0</color>
+    <color name="umbral_bg">#0E1116</color>
+    <color name="umbral_surface">#171C23</color>
+    <color name="umbral_on_dark">#ECEFF1</color>
+    <color name="umbral_answer">#2E7D32</color>
+    <color name="umbral_reject">#C62828</color>
+</resources>

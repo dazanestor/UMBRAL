@@ -1,0 +1,147 @@
+#!/bin/bash
+# Orquestador OTA A/B del videoportero Qvadis (CM3+, tryboot).
+# Slots root: A=p3 (PARTUUID <pfx>-03), B=p2 (<pfx>-02). Boot (p1) compartido.
+#
+# Subcomandos:
+#   status      estado de slots/versiones/pending
+#   check       compara version local vs remota (GitHub o SRC_DIR)
+#   update      OTA de app/config: clona activo->inactivo + overlay deploy/ (sin kernel/boot
+#               ni secretos) -> tryboot -> confirm promociona o revierte (rollback perfecto)
+#   os-upgrade  sube el SO: clona + 'apt full-upgrade' en el inactivo (chroot) + overlay.
+#               Respalda p1 (boot compartido) antes; en fallo restaura p1 y revierte.
+#   confirm     (servicio al arrancar) promociona si el slot de prueba esta sano; si no, revierte
+#   rollback    vuelve manualmente al otro slot
+set -u
+CONF=/etc/qvadis-ota.conf
+[ -f "$CONF" ] && . "$CONF"
+: "${REPO:=}"; : "${BRANCH:=main}"; : "${SRC_DIR:=}"
+: "${VERSION_FILE:=/etc/qvadis-version}"
+: "${OVERLAY_DIRS:=opt usr etc}"
+BOOT=/boot/firmware
+MNT=/mnt/ota
+LOG=/var/log/qvadis-ota.log
+PENDING=$BOOT/ota-pending
+P1BAK=/var/lib/qvadis/p1-backup.tgz
+
+# Secretos/estado que el overlay NO debe pisar (el clon ya trae los reales)
+OVX=(--exclude=wpa_supplicant/ --exclude=ssh/ --exclude=machine-id --exclude=machine-id.d/ \
+     --exclude=asterisk/pjsip.conf --exclude='asterisk/*secret*' \
+     --exclude=qvadis/config.json --exclude=qvadis/calls.json --exclude=NetworkManager/system-connections/)
+RSX=(--exclude=/tmp/* --exclude=/var/tmp/* --exclude=/var/cache/apt/archives/* \
+     --exclude=/var/log/* --exclude=/mnt/* --exclude=/media/* --exclude=/lost+found)
+
+log(){ echo "$(date '+%F %T') $*" >> "$LOG" 2>/dev/null; echo "$*"; }
+pfx(){ findmnt -no PARTUUID / | sed 's/-[0-9]*$//'; }
+cur_puuid(){ findmnt -no PARTUUID /; }
+puuid_a(){ echo "$(pfx)-03"; }; puuid_b(){ echo "$(pfx)-02"; }
+dev_of(){ case "$1" in *-03) echo /dev/mmcblk0p3;; *-02) echo /dev/mmcblk0p2;; esac; }
+cmdfile_of(){ case "$1" in *-03) echo cmdline_a.txt;; *-02) echo cmdline_b.txt;; esac; }
+other_of(){ if [ "$1" = "$(puuid_a)" ]; then puuid_b; else puuid_a; fi; }
+inactive_puuid(){ other_of "$(cur_puuid)"; }
+local_version(){ cat "$VERSION_FILE" 2>/dev/null || echo "0"; }
+
+ensure_cmdfiles(){ local P; P=$(pfx)
+  [ -f "$BOOT/cmdline_a.txt" ] || sed "s/root=PARTUUID=[0-9a-f-]*/root=PARTUUID=$P-03/" "$BOOT/cmdline.txt" > "$BOOT/cmdline_a.txt"
+  [ -f "$BOOT/cmdline_b.txt" ] || sed "s/root=PARTUUID=[0-9a-f-]*/root=PARTUUID=$P-02/" "$BOOT/cmdline.txt" > "$BOOT/cmdline_b.txt"; }
+set_tryboot_to(){ printf 'include config.txt\ncmdline=%s\n' "$(cmdfile_of "$1")" > "$BOOT/tryboot.txt"; }
+promote(){ ensure_cmdfiles; cp -f "$BOOT/$(cmdfile_of "$1")" "$BOOT/cmdline.txt"; set_tryboot_to "$(other_of "$1")"; sync; }
+health_ok(){ local i; for i in $(seq 1 "${1:-60}"); do
+    curl -fsS http://127.0.0.1:8080/api/health >/dev/null 2>&1 && systemctl is-active --quiet qvadis-kiosk && return 0; sleep 1; done; return 1; }
+
+# Tras un os-upgrade (kernel nuevo al p1 compartido), copia modulos+firmware al OTRO slot
+# para que tambien pueda arrancar con el kernel nuevo (mantiene el rollback valido).
+sync_modules_to_other(){
+  local other dev; other=$(other_of "$(cur_puuid)"); dev=$(dev_of "$other")
+  [ -b "$dev" ] || return 0
+  mkdir -p "$MNT"; mountpoint -q "$MNT" && umount "$MNT"
+  mount "$dev" "$MNT" 2>/dev/null || return 0
+  log "sincronizando /usr/lib/modules y firmware al slot $other (rollback valido)"
+  rsync -aHX /usr/lib/modules/  "$MNT/usr/lib/modules/"  2>>"$LOG" || true
+  rsync -aHX /usr/lib/firmware/ "$MNT/usr/lib/firmware/" 2>>"$LOG" || true
+  sync; umount "$MNT" 2>/dev/null || true
+}
+
+fetch_src(){ local dest="$1"
+  if [ -n "$SRC_DIR" ] && [ -d "$SRC_DIR" ]; then cp -a "$SRC_DIR"/. "$dest"/ && return 0; return 1; fi
+  [ -n "$REPO" ] || { log "sin REPO ni SRC_DIR"; return 1; }
+  log "descargando $REPO@$BRANCH"
+  curl -fsSL -A "qvadis-ota" "https://codeload.github.com/$REPO/tar.gz/refs/heads/$BRANCH" -o /tmp/qvadis-ota.tgz || return 1
+  tar -xzf /tmp/qvadis-ota.tgz -C "$dest" --strip-components=1; }
+remote_version(){ if [ -n "$SRC_DIR" ] && [ -f "$SRC_DIR/VERSION" ]; then cat "$SRC_DIR/VERSION"; return; fi
+  [ -n "$REPO" ] || return 1; curl -fsSL -A "qvadis-ota" "https://raw.githubusercontent.com/$REPO/$BRANCH/VERSION" 2>/dev/null; }
+
+# Prepara el slot inactivo: deja montado en $MNT un clon del activo con el fstab corregido.
+prepare_inactive(){ INACT=$(inactive_puuid); DEV=$(dev_of "$INACT")
+  log "preparando slot $INACT ($DEV)"; mkdir -p "$MNT"; mountpoint -q "$MNT" && umount "$MNT"
+  mount "$DEV" "$MNT" || { log "mount $DEV fallo"; return 1; }
+  log "clonando $(cur_puuid) -> $INACT"
+  rsync -aHAXx --delete "${RSX[@]}" / "$MNT/" 2>>"$LOG"
+  sed -i "/[[:space:]]\/[[:space:]].*ext4/ s/PARTUUID=[0-9a-f-]*/PARTUUID=$INACT/" "$MNT/etc/fstab"; }
+
+apply_overlay(){ local src="$1" d
+  for d in $OVERLAY_DIRS; do [ -d "$src/deploy/$d" ] && rsync -aHAX "${OVX[@]}" "$src/deploy/$d/" "$MNT/$d/" 2>>"$LOG"; done; }
+
+finalize(){ local ver="$1" kind="$2"
+  echo "$ver" > "$MNT$VERSION_FILE"; sync; umount "$MNT"
+  echo "$INACT $ver $kind" > "$PENDING"; set_tryboot_to "$INACT"; sync
+  log "tryboot -> $INACT (v$ver, $kind); reiniciando"; sleep 1; reboot "0 tryboot"; }
+
+chroot_apt(){ local root="$1" rc
+  cp -f /etc/resolv.conf "$root/etc/resolv.conf" 2>/dev/null
+  mount --bind /proc "$root/proc"; mount --bind /sys "$root/sys"
+  mount --bind /dev "$root/dev"; mount --bind /dev/pts "$root/dev/pts"
+  mount --bind "$BOOT" "$root/boot/firmware"
+  # CM3+ es ARMv7 (32-bit): solo el kernel v7. Los kernels v6/v8 se purgan aparte (no aplican).
+  chroot "$root" /bin/bash -c 'set -e; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-mark unhold linux-image-rpi-v7 linux-headers-rpi-v7 raspi-firmware 2>/dev/null || true; apt-get -y full-upgrade; apt-get -y autoremove --purge || true; apt-get clean || true' 2>>"$LOG"; rc=$?
+  umount "$root/boot/firmware" "$root/dev/pts" "$root/dev" "$root/sys" "$root/proc" 2>/dev/null; return $rc; }
+
+cmd_status(){ echo "slot_activo=$(cur_puuid)"
+  echo "slot_por_defecto=$(grep -o 'root=PARTUUID=[0-9a-f-]*' "$BOOT/cmdline.txt" | cut -d= -f3)"
+  echo "slot_inactivo=$(inactive_puuid)"; echo "version_local=$(local_version)"
+  echo "pending=$( [ -f "$PENDING" ] && cat "$PENDING" || echo no )"; }
+cmd_check(){ local lv rv; lv=$(local_version); rv=$(remote_version || echo "")
+  echo "local=$lv remota=${rv:-?}"
+  [ -n "$rv" ] && [ "$rv" != "$lv" ] && { echo "update=si"; return 0; }; echo "update=no"; return 1; }
+
+cmd_update(){ ensure_cmdfiles; local src ver; src=$(mktemp -d)
+  fetch_src "$src" || { log "fetch fallo"; rm -rf "$src"; return 1; }
+  ver=$(cat "$src/VERSION" 2>/dev/null || date +%Y%m%d%H%M%S)
+  log "=== update app v$ver ==="; prepare_inactive || { rm -rf "$src"; return 1; }
+  apply_overlay "$src"; rm -rf "$src"; finalize "$ver" app; }
+
+cmd_os_upgrade(){ ensure_cmdfiles; local src ver; src=$(mktemp -d); fetch_src "$src" 2>/dev/null || true
+  ver="os-$(date +%Y%m%d%H%M%S)"
+  log "=== os-upgrade $ver ==="
+  mkdir -p "$(dirname "$P1BAK")"; log "respaldando p1 -> $P1BAK"; tar -czf "$P1BAK" -C "$BOOT" . 2>>"$LOG"
+  prepare_inactive || { rm -rf "$src"; return 1; }
+  log "apt full-upgrade en el slot inactivo (chroot)"
+  if ! chroot_apt "$MNT"; then log "apt fallo; restaurando p1 y abortando"; [ -f "$P1BAK" ] && tar -xzf "$P1BAK" -C "$BOOT" 2>>"$LOG" && rm -f "$P1BAK"; sync; umount "$MNT" 2>/dev/null; rm -rf "$src"; return 1; fi
+  [ -d "$src/deploy" ] && apply_overlay "$src"
+  rm -rf "$src"; finalize "$ver" os; }
+
+cmd_confirm(){ [ -f "$PENDING" ] || exit 0
+  local pend_puuid pend_ver pend_kind cur
+  read -r pend_puuid pend_ver pend_kind < "$PENDING"; cur=$(cur_puuid)
+  if [ "$cur" = "$pend_puuid" ]; then
+    log "confirm: en slot de prueba $cur (v$pend_ver, $pend_kind), comprobando salud"
+    if health_ok 60; then
+      promote "$cur"; echo "$pend_ver" > "$VERSION_FILE"; rm -f "$PENDING"
+      if [ "$pend_kind" = os ]; then rm -f "$P1BAK"; sync_modules_to_other; fi
+      log "OTA OK: promocionado $cur v$pend_ver ($pend_kind)"
+    else
+      rm -f "$PENDING"; log "OTA FALLO salud en $cur; revirtiendo"
+      [ "$pend_kind" = os ] && [ -f "$P1BAK" ] && { log "restaurando p1"; tar -xzf "$P1BAK" -C "$BOOT" && rm -f "$P1BAK"; sync; }
+      sleep 2; reboot
+    fi
+  else
+    rm -f "$PENDING"; log "OTA: no arranco el slot de prueba $pend_puuid; revertido a $cur"
+    if [ "$pend_kind" = os ] && [ -f "$P1BAK" ]; then log "restaurando p1 tras fallo de arranque"; tar -xzf "$P1BAK" -C "$BOOT" && rm -f "$P1BAK"; sync; fi
+  fi; }
+
+cmd_rollback(){ local other; other=$(inactive_puuid); log "rollback manual -> $other"; promote "$other"; sync; sleep 1; reboot; }
+
+case "${1:-}" in
+  status) cmd_status;; check) cmd_check;; update) cmd_update;;
+  os-upgrade) cmd_os_upgrade;; confirm) cmd_confirm;; rollback) cmd_rollback;;
+  *) echo "uso: qvadis-ota status|check|update|os-upgrade|confirm|rollback"; exit 2;;
+esac

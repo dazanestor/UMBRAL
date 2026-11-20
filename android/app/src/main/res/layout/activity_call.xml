@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Llamada entrante a pantalla completa. Vídeo detrás; Abrir destacado; Atender/Rechazar al lado. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/umbral_bg">
+
+    <!-- Vídeo de la cámara (si hay). Ocupa el fondo. -->
+    <es.qvadis.app.ui.MjpegView
+        android:id="@+id/call_camera"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <TextView
+        android:id="@+id/call_title"
+        android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="48dp"
+        android:text="@string/call_title"
+        android:textColor="@color/umbral_on_dark"
+        android:textSize="22sp" android:textStyle="bold"
+        android:shadowColor="#000000" android:shadowRadius="8" />
+
+    <!-- Controles abajo -->
+    <LinearLayout
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:padding="24dp"
+        android:background="#66000000">
+
+        <!-- ABRIR destacado (deslizar) -->
+        <es.qvadis.app.ui.SlideToOpen
+            android:id="@+id/call_slide_open"
+            android:layout_width="match_parent" android:layout_height="60dp"
+            android:layout_marginTop="4dp" android:layout_marginBottom="16dp" />
+
+        <!-- Estado ENTRANTE: Rechazar (tfno abajo rojo) / Atender (tfno arriba verde) -->
+        <LinearLayout
+            android:id="@+id/group_incoming"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:gravity="center">
+            <ImageButton
+                android:id="@+id/btn_reject"
+                android:layout_width="64dp" android:layout_height="64dp"
+                android:layout_marginHorizontal="24dp"
+                android:background="@drawable/bg_circle"
+                android:backgroundTint="@color/umbral_reject"
+                android:src="@drawable/ic_call_end" android:tint="#FFFFFF"
+                android:scaleType="center"
+                android:contentDescription="@string/call_reject" />
+            <ImageButton
+                android:id="@+id/btn_answer"
+                android:layout_width="64dp" android:layout_height="64dp"
+                android:layout_marginHorizontal="24dp"
+                android:background="@drawable/bg_circle"
+                android:backgroundTint="@color/umbral_answer"
+                android:src="@drawable/ic_call" android:tint="#FFFFFF"
+                android:scaleType="center"
+                android:contentDescription="@string/call_answer" />
+        </LinearLayout>
+
+        <!-- Estado EN LLAMADA: Silenciar / Altavoz / Colgar -->
+        <LinearLayout
+            android:id="@+id/group_active"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:gravity="center"
+            android:visibility="gone">
+            <ImageButton
+                android:id="@+id/btn_mute"
+                android:layout_width="60dp" android:layout_height="60dp"
+                android:layout_marginHorizontal="16dp"
+                android:background="@drawable/bg_circle"
+                android:backgroundTint="@color/umbral_surface"
+                android:src="@drawable/ic_mic" android:tint="#FFFFFF"
+                android:scaleType="center"
+                android:contentDescription="Silenciar" />
+            <ImageButton
+                android:id="@+id/btn_speaker"
+                android:layout_width="60dp" android:layout_height="60dp"
+                android:layout_marginHorizontal="16dp"
+                android:background="@drawable/bg_circle"
+                android:backgroundTint="@color/umbral_blue"
+                android:src="@drawable/ic_volume_up" android:tint="#FFFFFF"
+                android:scaleType="center"
+                android:contentDescription="Altavoz" />
+            <ImageButton
+                android:id="@+id/btn_hangup"
+                android:layout_width="60dp" android:layout_height="60dp"
+                android:layout_marginHorizontal="16dp"
+                android:background="@drawable/bg_circle"
+                android:backgroundTint="@color/umbral_reject"
+                android:src="@drawable/ic_call_end" android:tint="#FFFFFF"
+                android:scaleType="center"
+                android:contentDescription="Colgar" />
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

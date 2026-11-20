@@ -1,0 +1,18 @@
+[Unit]
+Description=Qvadis kiosk (cog WPE sobre DRM/KMS)
+After=qvadis-manager.service
+Wants=qvadis-manager.service
+
+[Service]
+Environment=XDG_RUNTIME_DIR=/run/cog-rt
+Environment=COG_PLATFORM=drm
+ExecStartPre=/bin/mkdir -p /run/cog-rt
+ExecStartPre=/bin/chmod 700 /run/cog-rt
+ExecStartPre=-/usr/bin/plymouth quit --retain-splash
+ExecStart=/usr/bin/cog http://localhost:8080
+Restart=always
+RestartSec=2
+User=root
+
+[Install]
+WantedBy=multi-user.target

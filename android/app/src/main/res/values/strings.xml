@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">UMBRAL</string>
+    <string name="widget_open_door">Abrir puerta</string>
+    <string name="confirm_open_title">Abrir la puerta</string>
+    <string name="slide_to_open">Desliza para abrir →</string>
+    <string name="door_opening">Abriendo…</string>
+    <string name="door_opened">Puerta abierta</string>
+    <string name="door_error">No se pudo abrir</string>
+    <!-- Pantalla de llamada -->
+    <string name="call_answer">Atender</string>
+    <string name="call_reject">Rechazar</string>
+    <string name="call_title">Llaman a la puerta</string>
+</resources>

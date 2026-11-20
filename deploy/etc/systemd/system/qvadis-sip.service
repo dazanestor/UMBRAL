@@ -1,0 +1,18 @@
+[Unit]
+Description=Qvadis panel SIP UA (baresip, auto-answer)
+After=asterisk.service pigpiod.service
+Wants=asterisk.service pigpiod.service
+
+[Service]
+Environment=HOME=/root
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=PULSE_SERVER=unix:/run/user/1000/pulse/native
+Environment=PULSE_COOKIE=/home/pi/.config/pulse/cookie
+ExecStartPre=/bin/sh /opt/qvadis-ui/audio-on.sh
+ExecStart=/usr/bin/baresip -f /root/.baresip
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target

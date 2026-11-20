@@ -1,0 +1,34 @@
+# Qvadis CM3+ (BCM2837B0) - Raspberry Pi OS Lite trixie (armhf, 32-bit)
+# Arranque minimo y robusto; display/tactil se anaden tras confirmar SSH.
+arm_64bit=0
+kernel=kernel7.img
+auto_initramfs=1
+enable_uart=1
+dtparam=audio=on
+dtparam=i2c_arm=on
+disable_overscan=1
+
+# === Pantalla Qvadis (panel HDMI 800x480) + tactil Goodix (replicado del stock) ===
+dtoverlay=vc4-kms-v3d,audio=off
+hdmi_force_hotplug=1
+hdmi_drive=1
+hdmi_group=2
+hdmi_mode=87
+hdmi_cvt 800 480 60 6 1 0 0
+display_rotate=0
+# GPIOs de inicializacion del panel/backlight/reset (de stock)
+gpio=17=op,dl
+gpio=18=op,dh
+gpio=22=op,dh
+gpio=23=op,dh
+gpio=24=op,dl
+gpio=25=ip,dh
+gpio=26=op,dl
+gpio=6=op,dh
+gpio=7=op,dl
+gpio=11=op,dh
+gpio=20=ip,dh
+gpio=21=op,dh
+# Tactil Goodix por I2C
+dtoverlay=goodix-qv
+disable_splash=1

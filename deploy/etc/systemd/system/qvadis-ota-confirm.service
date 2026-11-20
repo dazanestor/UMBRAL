@@ -1,0 +1,11 @@
+[Unit]
+Description=Confirmar/promocionar OTA A/B tras arrancar (o revertir)
+After=qvadis-kiosk.service qvadis-manager.service
+Wants=qvadis-kiosk.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/qvadis-ota confirm
+
+[Install]
+WantedBy=multi-user.target

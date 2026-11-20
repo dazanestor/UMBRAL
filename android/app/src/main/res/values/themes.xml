@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Tema principal UMBRAL: oscuro con acento azul. -->
+    <style name="Theme.Umbral" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/umbral_blue</item>
+        <item name="colorPrimaryDark">@color/umbral_blue_dark</item>
+        <item name="colorAccent">@color/umbral_blue</item>
+        <item name="android:colorBackground">@color/umbral_bg</item>
+        <item name="colorSurface">@color/umbral_surface</item>
+        <item name="android:windowBackground">@color/umbral_bg</item>
+        <item name="android:statusBarColor">@color/umbral_bg</item>
+    </style>
+
+    <!-- Tema translúcido para la confirmación de apertura (se ve como diálogo sobre el escritorio). -->
+    <style name="Theme.Umbral.Translucent" parent="Theme.Material3.Dark.Dialog">
+        <item name="colorPrimary">@color/umbral_blue</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
+</resources>
