@@ -21,10 +21,12 @@ while [ $# -gt 0 ]; do case "$1" in
 
 say(){ printf '\033[1;36m[qvadis]\033[0m %s\n' "$*"; }
 err(){ printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2; }
-ask(){ local p="$1" d="${2:-}" v; if [ "$ASSUME_YES" = 1 ] && [ -n "$d" ]; then echo "$d"; return; fi
-  read -r -p "$p${d:+ [$d]}: " v </dev/tty || true; echo "${v:-$d}"; }
-asksecret(){ local p="$1" v; read -r -s -p "$p: " v </dev/tty || true; echo >&2; echo "$v"; }
-confirm(){ [ "$ASSUME_YES" = 1 ] && return 0; local a; read -r -p "$1 [s/N]: " a </dev/tty || true; [ "$a" = s ] || [ "$a" = S ]; }
+# Sin terminal (ssh sin -t, automatizacion) /dev/tty no existe: los valores quedan vacios en vez de abortar con set -u
+ask(){ local p="$1" d="${2:-}" v=""; if [ "$ASSUME_YES" = 1 ] && [ -n "$d" ]; then echo "$d"; return; fi
+  read -r -p "$p${d:+ [$d]}: " v 2>/dev/null </dev/tty || true; echo "${v:-$d}"; }
+asksecret(){ local p="$1" v=""; [ "$ASSUME_YES" = 1 ] && { echo ""; return 0; }
+  read -r -s -p "$p: " v 2>/dev/null </dev/tty || true; echo >&2; echo "$v"; }
+confirm(){ [ "$ASSUME_YES" = 1 ] && return 0; local a=""; read -r -p "$1 [s/N]: " a 2>/dev/null </dev/tty || true; [ "$a" = s ] || [ "$a" = S ]; }
 
 # ---------- 0) pre-flight ----------
 [ "$(id -u)" = 0 ] || { err "ejecuta como root (sudo)"; exit 1; }
@@ -63,9 +65,15 @@ say "copiando ficheros del sistema (deploy/)..."
 # opt, usr, var, root, y etc SIN pisar los secretos reales que ya pudiera haber
 rsync -aHAX "$DEPLOY/opt/"  /opt/
 rsync -aHAX "$DEPLOY/usr/"  /usr/
-rsync -aHAX "$DEPLOY/var/"  /var/
-rsync -aHAX "$DEPLOY/root/" /root/
-rsync -aHAX "$DEPLOY/etc/"  /etc/
+# el estado del usuario (config.json, calls.json) nunca viaja en deploy/
+rsync -aHAX --exclude=/lib/qvadis/config.json --exclude=/lib/qvadis/calls.json "$DEPLOY/var/" /var/
+# Secretos/estado: NO se pisan si ya estan configurados (volver a ejecutar install.sh no debe romper SIP ni WiFi)
+rsync -aHAX --exclude=/.baresip/accounts "$DEPLOY/root/" /root/
+rsync -aHAX --exclude=/asterisk/pjsip.conf --exclude=/wpa_supplicant/wpa_supplicant-wlan0.conf "$DEPLOY/etc/" /etc/
+[ -e /root/.baresip/accounts ] || install -D -m0600 "$DEPLOY/root/.baresip/accounts" /root/.baresip/accounts
+[ -e /etc/wpa_supplicant/wpa_supplicant-wlan0.conf ] || install -D -m0600 "$DEPLOY/etc/wpa_supplicant/wpa_supplicant-wlan0.conf" /etc/wpa_supplicant/wpa_supplicant-wlan0.conf
+# pjsip.conf: el del paquete Asterisk NO es el nuestro; el nuestro lleva la marca "; Qvadis - PJSIP"
+grep -q '^; Qvadis - PJSIP' /etc/asterisk/pjsip.conf 2>/dev/null || install -D -m0640 -o asterisk -g asterisk "$DEPLOY/etc/asterisk/pjsip.conf" /etc/asterisk/pjsip.conf
 # Red: DHCP por defecto SOLO si no hay ya un fichero (no se pisa una IP fija; la OTA tampoco lo toca)
 [ -f /etc/systemd/network/10-wlan0.network ] || install -D -m0644 /usr/share/qvadis/10-wlan0.network.default /etc/systemd/network/10-wlan0.network
 # Version instalada = la del repo (el OTA la compara con VERSION remoto)
@@ -75,6 +83,19 @@ for g in asterisk audio video render input gpio netdev; do getent group "$g" >/d
 chmod 0440 /etc/sudoers.d/qvadis 2>/dev/null || true
 chmod 0755 /usr/local/sbin/qvadis-* 2>/dev/null || true
 mkdir -p /var/lib/qvadis/snaps
+# Nombre del equipo (en la unidad de pruebas: qvadis-rpi). Cambialo con QV_HOSTNAME si tienes varias pantallas.
+QVHOST="${QV_HOSTNAME:-qvadis-rpi}"
+if [ -z "${QV_HOSTNAME:-}" ] && [ "$(cat /etc/hostname 2>/dev/null || true)" != raspberrypi ]; then
+  say "nombre del equipo conservado: $(cat /etc/hostname)"
+elif [[ "$QVHOST" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
+  OLDHOST="$(cat /etc/hostname 2>/dev/null || true)"
+  hostnamectl set-hostname "$QVHOST" 2>/dev/null || { echo "$QVHOST" > /etc/hostname; hostname "$QVHOST" 2>/dev/null || true; }
+  echo "$QVHOST" > /etc/hostname
+  if [ -n "$OLDHOST" ] && [ "$OLDHOST" != "$QVHOST" ]; then sed -i "s/\b$OLDHOST\b/$QVHOST/g" /etc/hosts; fi
+  grep -q "$QVHOST" /etc/hosts || printf '127.0.1.1\t%s\n' "$QVHOST" >> /etc/hosts
+else
+  say "aviso: QV_HOSTNAME='$QVHOST' no es valido (a-z, 0-9 y -); dejo el nombre actual"
+fi
 
 # ---------- 3) arranque / panel (config.txt + cmdline.txt) ----------
 say "configurando arranque y panel..."
@@ -111,8 +132,12 @@ say "configuracion del equipo (secretos)"
 WIFI_SSID="${WIFI_SSID:-$(ask 'SSID de tu WiFi')}"
 WIFI_PASS="${WIFI_PASS:-$(asksecret 'Contraseña WiFi')}"
 SIP_PASS="${SIP_PASS:-$(asksecret 'Contraseña SIP (para panel y moviles)')}"
-PANEL_PIN="${PANEL_PIN:-$(ask 'PIN del panel (4 digitos)' 1234)}"
-TZ="${TZ:-$(ask 'Zona horaria' Europe/Madrid)}"
+CJ=/var/lib/qvadis/config.json
+PIN_KEEP=0
+if [ -z "${PANEL_PIN:-}" ] && [ -f "$CJ" ] && grep -q '"pin"' "$CJ"; then PIN_KEEP=1; say "PIN del panel existente: se conserva"
+else PANEL_PIN="${PANEL_PIN:-$(ask 'PIN del panel (4 digitos)' 1234)}"; fi
+DEFTZ=Europe/Madrid; [ -f "$CJ" ] && [ -s /etc/timezone ] && DEFTZ="$(cat /etc/timezone)"
+TZ="${TZ:-$(ask 'Zona horaria' "$DEFTZ")}"
 
 WPA=/etc/wpa_supplicant/wpa_supplicant-wlan0.conf
 if [ -n "$WIFI_SSID" ]; then
@@ -129,8 +154,8 @@ if [ -n "$SIP_PASS" ]; then
   sed -i "s/auth_pass=CHANGE_ME/auth_pass=$SIP_PASS/g" /root/.baresip/accounts 2>/dev/null || true
 fi
 # PIN en la config del manager
-CJ=/var/lib/qvadis/config.json
-if [ -f "$CJ" ]; then
+if [ "$PIN_KEEP" = 1 ]; then :
+elif [ -f "$CJ" ]; then
   python3 - "$CJ" "$PANEL_PIN" <<'PY' 2>/dev/null || true
 import json,sys
 p,pin=sys.argv[1],sys.argv[2]
@@ -195,7 +220,9 @@ if [ "$DO_AB" = 1 ]; then
   case "$ROOTPUUID" in *-03) BSUF=02;; *-02) BSUF=03;; *) BSUF="";; esac
   BDEV=""; [ "$BSUF" = 02 ] && BDEV=/dev/mmcblk0p2; [ "$BSUF" = 03 ] && BDEV=/dev/mmcblk0p3
   if [ -n "$BDEV" ] && [ -b "$BDEV" ]; then
-    if confirm "Configurar A/B: FORMATEAR $BDEV como slot B y clonar el sistema (para OTA con rollback)?"; then
+    if [ -f /boot/firmware/cmdline_a.txt ] && [ -f /boot/firmware/cmdline_b.txt ] && [ "${FORCE_AB:-0}" != 1 ]; then
+      say "A/B ya configurado: omitido (FORCE_AB=1 lo rehace y BORRA el slot B)"
+    elif confirm "Configurar A/B: FORMATEAR $BDEV como slot B y clonar el sistema (para OTA con rollback)?"; then
       say "preparando slot B en $BDEV (esto borra su contenido)..."
       umount "$BDEV" 2>/dev/null || true
       mkfs.ext4 -F -L rootfsB "$BDEV" >/dev/null

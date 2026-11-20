@@ -4,3 +4,4 @@ WIFI_PASS="mi-contrasena-wifi"
 SIP_PASS="contrasena-sip"
 PANEL_PIN="1234"
 TZ="Europe/Madrid"
+QV_HOSTNAME="qvadis-rpi"   # nombre del equipo (cambialo si tienes varias pantallas)

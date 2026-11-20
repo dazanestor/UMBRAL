@@ -6,20 +6,56 @@ propia licencia. Se listan aquí para su atribución y cumplimiento.
 
 App Android (carpeta android/) y el APK distribuido
 ---------------------------------------------------
-- Linphone SDK  (org.linphone:linphone-sdk-android) .......... GPLv3
-  Por enlazar este SDK, la app Android y el APK se distribuyen bajo GPLv3
-  (ver android/LICENSE).
-- OkHttp  (com.squareup.okhttp3:okhttp) ...................... Apache License 2.0
-- ZXing Android Embedded  (com.journeyapps:zxing-android-embedded) ... Apache License 2.0
-- AndroidX, Material Components, Kotlin (stdlib/coroutines) .. Apache License 2.0
-- Firebase Cloud Messaging SDK  (com.google.firebase) ....... Términos de servicio de las APIs de Google (licencia de uso propietaria)
-- Material Design Icons (iconos SVG usados en la interfaz) ... Apache License 2.0
+Lista elaborada a partir del contenido real del APK (librerias Java y nativas) y de las
+dependencias declaradas en android/app/build.gradle.
+
+Linphone SDK (org.linphone:linphone-sdk-android 5.3.0) ...... GPLv3
+  Por enlazar este SDK, la app Android y el APK se distribuyen bajo GPLv3 (ver android/LICENSE).
+  Componentes nativos propios de Belledonne Communications presentes en el APK:
+  liblinphone, mediastreamer2 (y sus plugins msaaudio, msandroidcamera2, mswebrtc), oRTP,
+  bctoolbox y bzrtp ........................................... GPLv3
+
+Componentes de terceros que acompanan al SDK de Linphone en el APK (nativos):
+- libsrtp2 (Cisco) ............................................ BSD-3-Clause
+- Procesamiento de audio de WebRTC (plugin mswebrtc) ........... BSD-3-Clause
+- libjpeg-turbo (libjpeg.so, libturbojpeg.so) ................. BSD-3-Clause / IJG / Zlib
+- JsonCpp (libjsoncpp.so) ..................................... MIT
+- zxing-cpp (libZXing.so) ..................................... Apache License 2.0
+- Xerces-C++ ................................................... Apache License 2.0
+- SQLite ....................................................... Dominio publico
+- Speex ........................................................ BSD-3-Clause
+- libc++ de LLVM (libc++_shared.so) ............................ Apache License 2.0 con excepciones LLVM
+
+Librerias Java/Kotlin:
+- OkHttp  (com.squareup.okhttp3:okhttp) ....................... Apache License 2.0
+  Incluye datos de la Public Suffix List (okhttp3/internal/publicsuffix) ... Mozilla Public License 2.0
+  (https://publicsuffix.org ; texto de la licencia: https://mozilla.org/MPL/2.0/)
+- Okio (dependencia de OkHttp) ................................ Apache License 2.0
+- ZXing Android Embedded  (com.journeyapps) y ZXing core
+  (com.google.zxing) ........................................... Apache License 2.0
+- Google Tink (dependencia de androidx.security:security-crypto) ... Apache License 2.0
+- AndroidX (core, appcompat, activity, fragment, lifecycle, recyclerview, viewpager2,
+  biometric, security-crypto, startup, ...) .................... Apache License 2.0
+- Material Components for Android ............................. Apache License 2.0
+- Kotlin (stdlib) y kotlinx.coroutines (android, core, play-services) ... Apache License 2.0
+- Firebase Cloud Messaging SDK (com.google.firebase) y Google Play services
+  (com.google.android.gms) ..................................... Terminos de servicio de las APIs de
+                                                                 Google / Android SDK License
+                                                                 (licencia de uso propietaria; no es
+                                                                 software libre)
+- Material Design Icons (iconos SVG usados en la interfaz) .... Apache License 2.0
 
 Panel / pila de la placa (carpeta deploy/)
 ------------------------------------------
 - simple-keyboard  (deploy/opt/qvadis-ui/www/vendor/) ........ MIT License
   (c) Francisco Hodge y colaboradores del proyecto.
 - Material Design Icons (iconos SVG usados en la interfaz web) . Apache License 2.0
+
+Software que install.sh descarga con apt de los repositorios de Debian / Raspberry Pi
+(NO se redistribuye en este repositorio; cada paquete conserva su licencia, ver /usr/share/doc/<paquete>/copyright):
+- Asterisk (GPLv2), baresip (BSD-3-Clause), cog (MIT), WPE WebKit (LGPL-2.1+ y BSD),
+  FFmpeg (LGPL-2.1+ / GPL-2+ segun la compilacion de Debian), Node.js (MIT),
+  PulseAudio (LGPL-2.1+), pigpio (dominio publico / Unlicense).
 
 Resto del proyecto
 ------------------

@@ -30,13 +30,17 @@ set -euo pipefail
 say(){ printf '\033[1;36m[liberar]\033[0m %s\n' "$*"; }
 err(){ printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2; }
 die(){ err "$*"; exit 1; }
-confirm(){ [ "${ASSUME_YES:-0}" = 1 ] && return 0; local a; read -r -p "$1 [escribe SI]: " a </dev/tty || true; [ "$a" = SI ]; }
-ask(){ local v; read -r -p "$1: " v </dev/tty || true; printf '%s' "$v"; }
-askhidden(){ local v; read -r -s -p "$1: " v </dev/tty || true; echo >&2; printf '%s' "$v"; }
+confirm(){ [ "${ASSUME_YES:-0}" = 1 ] && return 0; local a=""; read -r -p "$1 [escribe SI]: " a 2>/dev/null </dev/tty || true; [ "$a" = SI ]; }
+ask(){ local v=""; read -r -p "$1: " v 2>/dev/null </dev/tty || true; printf '%s' "$v"; }
+askhidden(){ local v=""; read -r -s -p "$1: " v 2>/dev/null </dev/tty || true; echo >&2; printf '%s' "$v"; }
 
 [ "$(id -u)" = 0 ] || die "ejecuta como root"
 for c in tar xz mkfs.ext4 blkid blockdev findmnt mount umount cp mktemp sed awk df du cmp od; do
   command -v "$c" >/dev/null || die "falta $c"; done
+# Solo para el sistema de FABRICA (Yocto). En una pantalla ya liberada machacaria el slot inactivo y el kernel en uso.
+if grep -qiE '^(ID|ID_LIKE)=.*(debian|raspbian)' /etc/os-release 2>/dev/null && [ "${FORCE_NOT_STOCK:-0}" != 1 ]; then
+  die "este equipo ya corre Debian/Raspberry Pi OS (no es el sistema de fábrica): liberar.sh no se ejecuta aqui. Para actualizar usa install.sh o 'qvadis-ota'."
+fi
 HERE="$(cd "$(dirname "$0")" && pwd)"
 for f in deploy/boot/firmware/config.txt deploy/boot/firmware/overlays/goodix-qv.dtbo \
          deploy/etc/NetworkManager/conf.d/99-unmanaged-wlan0.conf deploy/etc/modprobe.d/qvadis-no-bt.conf \

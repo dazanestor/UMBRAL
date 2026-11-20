@@ -124,6 +124,10 @@ sudo ./install.sh --answers config.local --yes   # desatendido (ver config.local
 
 Instala dependencias, copia todo, configura panel/arranque, genera el certificado TLS, habilita servicios y monta el esquema **A/B** (segundo slot para el OTA). Reinicia y queda el videoportero funcionando.
 
+**Se puede volver a ejecutar** (por ejemplo para actualizar) sin romper una pantalla ya configurada: no pisa la clave SIP (`pjsip.conf`, `baresip`), el WiFi, el PIN, el hostname, la zona horaria, la IP fija ni el certificado TLS, y no reformatea el slot B si el A/B ya existe (`FORCE_AB=1` lo rehace y **borra** el slot B). El nombre del equipo por defecto es `qvadis-rpi` (variable `QV_HOSTNAME`).
+
+> **Kernel:** la imagen de Raspberry Pi OS trae un kernel más antiguo (6.18.50) que la unidad de pruebas (6.18.60). `install.sh` no actualiza el sistema operativo a propósito (riesgo de dejar la pantalla sin arrancar); cuando todo funcione, `sudo qvadis-ota os-upgrade` lo actualiza en el slot inactivo con *tryboot* y vuelta atrás automática.
+
 Banderas: `--no-ab` (sin A/B), `--no-reboot`, `--yes`, `--answers FICHERO`.
 
 ---
