@@ -301,7 +301,6 @@ docs/              Documentación, PDFs de referencia y capturas (docs/screensho
 
 - **App Android nativa (UMBRAL)**: **implementada**, en [`android/`](android/) (Kotlin; Linphone SIP‑TLS/SRTP, OkHttp con pinning, FCM, ZXing). Compila con `android/build.sh` (JDK 17 + Gradle portables) → APK `arm64‑v8a`. Backend completo: SIP‑TLS/SRTP, HTTPS con token + pinning (puerta/cámara), push FCM al sonar, datos de emparejamiento por QR (token, huella del cert, puertos, dominio).
 - **QDS (Fermax)**: integración no implementada (requiere el módulo físico).
-- **RTSP** validado por equivalencia (requiere una cámara RTSP real para confirmación final).
 - **CGNAT**: si tu operador no te da IP pública, el acceso por puertos no funciona; haría falta VPN/malla o un relay (no incluido).
 
 ---

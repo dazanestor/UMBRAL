@@ -85,7 +85,7 @@ if ls "$DEPLOY"/boot/firmware/overlays/*.dtbo >/dev/null 2>&1; then
   cp -f "$DEPLOY"/boot/firmware/overlays/*.dtbo /boot/firmware/overlays/
 fi
 # plymouth tema umbral
-plymouth-set-default-theme umbral 2>/dev/null || true
+plymouth-set-default-theme -R umbral 2>/dev/null || true
 
 # ---------- 4) secretos (WiFi / SIP / PIN / zona) ----------
 say "configuracion del equipo (secretos)"
