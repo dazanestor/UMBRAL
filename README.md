@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/brand/umbral-logo.png" alt="UMBRAL" width="120">
+  <img src="docs/brand/umbral-logo.png" alt="UMBRAL" width="200">
 </p>
 
-# UMBRAL — Videoportero open source
+# UMBRAL — Videoportero Open Source
 
 Firmware y herramientas **Open Source** para reutilizar, reparar y liberar la pantalla de videoportero **Qvadis One** (módulo Raspberry Pi **CM3+ / BCM2837B0**), que quedó inservible al cerrar la empresa y apagarse su nube.
 
