@@ -1,0 +1,85 @@
+#!/bin/bash
+# Helper WiFi del panel Qvadis. Lo ejecuta root vía sudo desde el manager (usuario pi).
+# Uso: qvadis-wifi status | connect <ssid> <psk>
+#
+# NOTA: no se expone "scan". En este hardware (rtl8xxxu, 8723bu) un escaneo con
+# wpa_cli desasocia la red oculta y no reconecta sin reiniciar el supplicant.
+# connect reescribe la configuración y REINICIA wpa_supplicant@wlan0 (el método que
+# recupera de forma fiable). Si no logra asociarse en el tiempo límite, revierte a la
+# configuración anterior y vuelve a reiniciar el servicio, de modo que el equipo nunca
+# se queda sin red por un fallo.
+set -u
+IF=wlan0
+CONF=/etc/wpa_supplicant/wpa_supplicant-wlan0.conf
+WCLI="/usr/sbin/wpa_cli -i $IF"
+SVC="wpa_supplicant@${IF}"
+
+wait_assoc() {  # $1=ssid esperado ; devuelve 0 si COMPLETED+ip
+  local want="$1" st ip cur i
+  for i in $(seq 1 25); do
+    st=$($WCLI status 2>/dev/null | grep -oP '^wpa_state=\K.*')
+    ip=$($WCLI status 2>/dev/null | grep -oP '^ip_address=\K.*')
+    cur=$($WCLI status 2>/dev/null | grep -oP '^ssid=\K.*')
+    if [ "$st" = "COMPLETED" ] && [ "$cur" = "$want" ] && [ -n "$ip" ]; then echo "$ip"; return 0; fi
+    sleep 1
+  done
+  return 1
+}
+
+case "${1:-}" in
+  status)
+    $WCLI status 2>/dev/null | grep -E '^(wpa_state|ssid|ip_address|bssid)='
+    ;;
+  scan)
+    # El escaneo desasocia la red oculta en rtl8xxxu; leemos resultados y REINICIAMOS
+    # el supplicant para garantizar la reconexion (interrupcion breve, pero segura).
+    $WCLI scan >/dev/null 2>&1
+    sleep 6
+    RES=$($WCLI scan_results 2>/dev/null)
+    systemctl restart "$SVC" >/dev/null 2>&1
+    wait_assoc "$(grep -oP '^\s*ssid="\K[^"]+' "$CONF" | head -1)" >/dev/null 2>&1
+    echo "$RES" | awk -F'\t' 'NR>1 && $5!="" {
+        ssid=$5; sig=$3+0;
+        if(!(ssid in best) || sig>best[ssid]){best[ssid]=sig; sec[ssid]=($4 ~ /WPA|RSN/)?1:0}
+      } END { for(s in best) printf "%s\t%d\t%d\n", s, best[s], sec[s] }'
+    ;;
+  connect)
+    SSID="${2:-}"; PSK="${3:-}"
+    [ -z "$SSID" ] && { echo "ERR no-ssid"; exit 2; }
+    cp -f "$CONF" "$CONF.qvbak"
+    {
+      echo "ctrl_interface=DIR=/run/wpa_supplicant GROUP=netdev"
+      echo "update_config=1"
+      echo "country=ES"
+      echo "network={"
+      # SSID en HEX (forma ssid=<hex> de wpa_supplicant, sin comillas): un SSID malicioso
+      # (p. ej. de un AP cercano) con comillas/saltos de linea NO puede inyectar directivas.
+      echo "	ssid=$(printf '%s' "$SSID" | od -An -tx1 | tr -d ' \n')"
+      echo "	scan_ssid=1"
+      if [ -n "$PSK" ]; then
+        PMK=$(/usr/bin/wpa_passphrase "$SSID" "$PSK" 2>/dev/null | grep -oP '^\s*psk=\K[0-9a-f]{64}')
+        echo "	key_mgmt=WPA-PSK"
+        if [ -n "$PMK" ]; then echo "	psk=$PMK"; else echo "	psk=\"$PSK\""; fi
+      else
+        echo "	key_mgmt=NONE"
+      fi
+      echo "	ieee80211w=0"
+      echo "}"
+    } > "$CONF.new"
+    chmod 600 "$CONF.new"; mv -f "$CONF.new" "$CONF"
+    systemctl restart "$SVC" >/dev/null 2>&1
+    if ip=$(wait_assoc "$SSID"); then
+      rm -f "$CONF.qvbak"
+      echo "OK ssid=$SSID ip=$ip"
+      exit 0
+    else
+      mv -f "$CONF.qvbak" "$CONF"
+      systemctl restart "$SVC" >/dev/null 2>&1
+      wait_assoc "$(grep -oP '^\s*ssid="\K[^"]+' "$CONF" | head -1)" >/dev/null 2>&1
+      echo "ERR connect-failed reverted"
+      exit 1
+    fi
+    ;;
+  *)
+    echo "ERR usage"; exit 2;;
+esac

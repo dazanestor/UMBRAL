@@ -1,0 +1,14 @@
+[DEFAULT]
+banaction = nftables-multiport
+banaction_allports = nftables-allports
+bantime = 1h
+findtime = 10m
+maxretry = 5
+
+[sshd]
+enabled = false
+
+[asterisk]
+enabled = true
+port = 5060,5061
+logpath = /var/log/asterisk/messages.log

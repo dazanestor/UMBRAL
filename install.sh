@@ -1,0 +1,204 @@
+#!/bin/bash
+# install.sh - Provisiona un Raspberry Pi OS Lite (CM3+, placa Qvadis) como videoportero
+# abierto Qvadis: dependencias, ficheros (deploy/), arranque/panel, secretos, servicios y A/B.
+#
+# Ejecutar como root SOBRE un RPi OS Lite ya arrancado en la placa, desde la raiz del repo:
+#   sudo ./install.sh                 # interactivo (pregunta los secretos)
+#   sudo ./install.sh --answers f.conf --yes
+# Banderas:
+#   --answers FILE  lee secretos de un fichero (ver config.local.example)
+#   --no-ab         no configura el A/B (segundo slot) ni formatea nada
+#   --no-reboot     no reinicia al terminar
+#   --yes           no pide confirmaciones
+set -euo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+DEPLOY="$HERE/deploy"
+ANSWERS=""; DO_AB=1; DO_REBOOT=1; ASSUME_YES=0
+while [ $# -gt 0 ]; do case "$1" in
+  --answers) ANSWERS="$2"; shift 2;; --no-ab) DO_AB=0; shift;;
+  --no-reboot) DO_REBOOT=0; shift;; --yes|-y) ASSUME_YES=1; shift;;
+  *) echo "opcion desconocida: $1"; exit 2;; esac; done
+
+say(){ printf '\033[1;36m[qvadis]\033[0m %s\n' "$*"; }
+err(){ printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2; }
+ask(){ local p="$1" d="${2:-}" v; if [ "$ASSUME_YES" = 1 ] && [ -n "$d" ]; then echo "$d"; return; fi
+  read -r -p "$p${d:+ [$d]}: " v </dev/tty || true; echo "${v:-$d}"; }
+asksecret(){ local p="$1" v; read -r -s -p "$p: " v </dev/tty || true; echo >&2; echo "$v"; }
+confirm(){ [ "$ASSUME_YES" = 1 ] && return 0; local a; read -r -p "$1 [s/N]: " a </dev/tty || true; [ "$a" = s ] || [ "$a" = S ]; }
+
+# ---------- 0) pre-flight ----------
+[ "$(id -u)" = 0 ] || { err "ejecuta como root (sudo)"; exit 1; }
+[ -d "$DEPLOY" ] || { err "no encuentro deploy/ junto a install.sh"; exit 1; }
+[ -d /boot/firmware ] || { err "no es un RPi OS reciente (falta /boot/firmware)"; exit 1; }
+grep -qi raspberry /proc/device-tree/model 2>/dev/null || say "aviso: el modelo no dice 'Raspberry'; continuo igual"
+ROOTPUUID="$(findmnt -no PARTUUID / 2>/dev/null || true)"
+[ -n "$ROOTPUUID" ] || { err "no puedo determinar el PARTUUID de /"; exit 1; }
+PFX="${ROOTPUUID%-*}"
+say "Raiz actual: $ROOTPUUID (prefijo $PFX)"
+[ -f "$ANSWERS" ] && { say "leyendo respuestas de $ANSWERS"; . "$ANSWERS"; }
+
+# ---------- 1) dependencias ----------
+PKGS="cog libwpewebkit-2.0-1 libgles2 fontconfig fonts-inter \
+asterisk baresip alsa-utils pigpio ffmpeg iw rsync wpasupplicant fail2ban nftables \
+pulseaudio pulseaudio-utils \
+plymouth plymouth-themes wpa_supplicant"
+say "instalando dependencias (apt)..."
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+# shellcheck disable=SC2086
+apt-get install -y --no-install-recommends $PKGS || { err "fallo apt; revisa red/espacio"; exit 1; }
+
+# ---------- 2) ficheros (deploy -> /) ----------
+say "copiando ficheros del sistema (deploy/)..."
+# opt, usr, var, root, y etc SIN pisar los secretos reales que ya pudiera haber
+rsync -aHAX "$DEPLOY/opt/"  /opt/
+rsync -aHAX "$DEPLOY/usr/"  /usr/
+rsync -aHAX "$DEPLOY/var/"  /var/
+rsync -aHAX "$DEPLOY/root/" /root/
+rsync -aHAX "$DEPLOY/etc/"  /etc/
+chmod 0440 /etc/sudoers.d/qvadis 2>/dev/null || true
+chmod 0755 /usr/local/sbin/qvadis-* 2>/dev/null || true
+mkdir -p /var/lib/qvadis/snaps
+
+# ---------- 3) arranque / panel (config.txt + cmdline.txt) ----------
+say "configurando arranque y panel..."
+CFG=/boot/firmware/config.txt; CMD=/boot/firmware/cmdline.txt
+cp -n "$CFG" "$CFG.qvadis-orig" 2>/dev/null || true
+cp -n "$CMD" "$CMD.qvadis-orig" 2>/dev/null || true
+# Anadir bloque Qvadis a config.txt (idempotente): lineas del panel (gpio/kms/goodix/hdmi/splash...)
+if ! grep -q "QVADIS-BEGIN" "$CFG"; then
+  { echo ""; echo "# QVADIS-BEGIN (panel Qvadis; no editar a mano)"
+    grep -E '^(gpio=|dtoverlay=vc4-kms|dtoverlay=goodix|hdmi_|disable_splash|auto_initramfs|disable_overscan|framebuffer_|max_framebuffers)' "$DEPLOY/boot/firmware/config.txt"
+    echo "# QVADIS-END"; } >> "$CFG"
+fi
+# cmdline: fusionar nuestros parametros, conservando el root REAL de esta placa
+CUR="$(cat "$CMD")"
+for p in dwc_otg.lpm_enable=0 dwc_otg.speed=1 quiet loglevel=3 logo.nologo \
+         vt.global_cursor_default=0 plymouth.ignore-serial-consoles splash; do
+  grep -qw -- "$p" <<<"$CUR" || CUR="$CUR $p"
+done
+CUR="$(sed -E 's/console=tty1/console=tty3/' <<<"$CUR")"
+echo "$CUR" > "$CMD"
+# overlay(s) personalizados del panel (p.ej. goodix-qv.dtbo, tactil Goodix)
+if ls "$DEPLOY"/boot/firmware/overlays/*.dtbo >/dev/null 2>&1; then
+  mkdir -p /boot/firmware/overlays
+  cp -f "$DEPLOY"/boot/firmware/overlays/*.dtbo /boot/firmware/overlays/
+fi
+# plymouth tema umbral
+plymouth-set-default-theme umbral 2>/dev/null || true
+
+# ---------- 4) secretos (WiFi / SIP / PIN / zona) ----------
+say "configuracion del equipo (secretos)"
+WIFI_SSID="${WIFI_SSID:-$(ask 'SSID de tu WiFi')}"
+WIFI_PASS="${WIFI_PASS:-$(asksecret 'Contraseña WiFi')}"
+SIP_PASS="${SIP_PASS:-$(asksecret 'Contraseña SIP (para panel y moviles)')}"
+PANEL_PIN="${PANEL_PIN:-$(ask 'PIN del panel (4 digitos)' 1234)}"
+TZ="${TZ:-$(ask 'Zona horaria' Europe/Madrid)}"
+
+WPA=/etc/wpa_supplicant/wpa_supplicant-wlan0.conf
+if [ -n "$WIFI_SSID" ]; then
+  PMK="$(wpa_passphrase "$WIFI_SSID" "$WIFI_PASS" 2>/dev/null | grep -oP '^\s*psk=\K[0-9a-f]{64}' || true)"
+  {
+    echo "ctrl_interface=DIR=/run/wpa_supplicant GROUP=netdev"; echo "update_config=1"; echo "country=ES"
+    echo "network={"; echo "	ssid=\"$WIFI_SSID\""; echo "	scan_ssid=1"; echo "	key_mgmt=WPA-PSK"
+    [ -n "$PMK" ] && echo "	psk=$PMK" || echo "	psk=\"$WIFI_PASS\""
+    echo "	ieee80211w=0"; echo "}"
+  } > "$WPA"; chmod 600 "$WPA"
+fi
+if [ -n "$SIP_PASS" ]; then
+  sed -i "s/password=CHANGE_ME/password=$SIP_PASS/g" /etc/asterisk/pjsip.conf 2>/dev/null || true
+  sed -i "s/auth_pass=CHANGE_ME/auth_pass=$SIP_PASS/g" /root/.baresip/accounts 2>/dev/null || true
+fi
+# PIN en la config del manager
+CJ=/var/lib/qvadis/config.json
+if [ -f "$CJ" ]; then
+  python3 - "$CJ" "$PANEL_PIN" <<'PY' 2>/dev/null || true
+import json,sys
+p,pin=sys.argv[1],sys.argv[2]
+try: d=json.load(open(p))
+except Exception: d={}
+d['pin']=pin; json.dump(d,open(p,'w'),indent=2)
+PY
+else
+  mkdir -p /var/lib/qvadis; echo "{\"pin\":\"$PANEL_PIN\"}" > "$CJ"
+fi
+chown -R pi:pi /var/lib/qvadis 2>/dev/null || true
+timedatectl set-timezone "$TZ" 2>/dev/null || ln -sf "/usr/share/zoneinfo/$TZ" /etc/localtime
+
+# ---------- 4b) certificado TLS autofirmado (SIP-TLS/SRTP; la app lo fija por pinning) ----------
+say "certificado TLS autofirmado..."
+mkdir -p /etc/asterisk/keys
+if [ ! -f /etc/asterisk/keys/qvadis.crt ]; then
+  LANIP="$(hostname -I | awk '{print $1}')"
+  SAN="DNS:qvadis,DNS:localhost${LANIP:+,IP:$LANIP}${DOMAIN:+,DNS:$DOMAIN}"
+  openssl req -x509 -newkey rsa:2048 -keyout /etc/asterisk/keys/qvadis.key \
+    -out /etc/asterisk/keys/qvadis.crt -days 3650 -nodes \
+    -subj "/CN=qvadis-videoportero" -addext "subjectAltName=$SAN" >/dev/null 2>&1 || say "aviso: no se pudo generar el cert"
+fi
+chown -R asterisk:asterisk /etc/asterisk/keys 2>/dev/null || true
+chmod 644 /etc/asterisk/keys/qvadis.crt 2>/dev/null || true
+chmod 600 /etc/asterisk/keys/qvadis.key 2>/dev/null || true
+# copia legible por el manager (pi) para el HTTPS remoto (:8443)
+mkdir -p /var/lib/qvadis/certs
+cp -f /etc/asterisk/keys/qvadis.crt /var/lib/qvadis/certs/qvadis.crt
+cp -f /etc/asterisk/keys/qvadis.key /var/lib/qvadis/certs/qvadis.key
+chown -R pi:pi /var/lib/qvadis/certs 2>/dev/null || true
+chmod 644 /var/lib/qvadis/certs/qvadis.crt; chmod 600 /var/lib/qvadis/certs/qvadis.key
+
+# ---------- 4b) audio: PulseAudio como pi, persistente ----------
+# El intercom local y baresip (audio del movil) usan los dispositivos AEC de PulseAudio,
+# que corre como 'pi'. Linger = el Pulse de pi arranca al boot aunque nadie inicie sesion.
+say "configurando PulseAudio (pi, persistente)..."
+loginctl enable-linger pi 2>/dev/null || true
+sudo -u pi XDG_RUNTIME_DIR=/run/user/1000 systemctl --user enable pulseaudio.socket pulseaudio.service 2>/dev/null || true
+chmod 0755 /var/lib/qvadis/audio-aec-up.sh /opt/qvadis-ui/intercom-on.sh /opt/qvadis-ui/intercom-off.sh /opt/qvadis-ui/audio-on.sh 2>/dev/null || true
+
+# ---------- 5) servicios ----------
+say "habilitando servicios..."
+systemctl daemon-reload
+for s in pigpiod systemd-networkd wpa_supplicant@wlan0 nftables fail2ban \
+         qvadis-manager qvadis-kiosk qvadis-sip qvadis-wifi-powersave \
+         qvadis-wifi-reset qvadis-wifi-reset.timer qvadis-ota-confirm; do
+  systemctl enable "$s" 2>/dev/null || say "aviso: no se pudo habilitar $s"
+done
+# Asterisk: sin chan_sip (usamos PJSIP); el modules.conf de deploy ya lo gestiona
+systemctl enable asterisk 2>/dev/null || true
+# Bluetooth: deshabilitado (combo rtl8723bu WiFi+BT; su coexistencia tira el WiFi y no se usa).
+# El blacklist de /etc/modprobe.d/qvadis-no-bt.conf evita cargar btusb en el proximo arranque.
+systemctl disable --now bluetooth 2>/dev/null || true
+rfkill block bluetooth 2>/dev/null || true
+
+# ---------- 6) A/B (slot B en la particion libre) ----------
+if [ "$DO_AB" = 1 ]; then
+  # slot inactivo = la "otra" particion de 3,5G (02 si corremos en 03, y viceversa)
+  case "$ROOTPUUID" in *-03) BSUF=02;; *-02) BSUF=03;; *) BSUF="";; esac
+  BDEV=""; [ "$BSUF" = 02 ] && BDEV=/dev/mmcblk0p2; [ "$BSUF" = 03 ] && BDEV=/dev/mmcblk0p3
+  if [ -n "$BDEV" ] && [ -b "$BDEV" ]; then
+    if confirm "Configurar A/B: FORMATEAR $BDEV como slot B y clonar el sistema (para OTA con rollback)?"; then
+      say "preparando slot B en $BDEV (esto borra su contenido)..."
+      umount "$BDEV" 2>/dev/null || true
+      mkfs.ext4 -F -L rootfsB "$BDEV" >/dev/null
+      mkdir -p /mnt/ab; mount "$BDEV" /mnt/ab
+      rsync -aHAXx --delete --exclude=/tmp/* --exclude=/var/tmp/* \
+        --exclude=/var/cache/apt/archives/* --exclude=/var/log/* \
+        --exclude=/mnt/* --exclude=/media/* --exclude=/lost+found / /mnt/ab/
+      sed -i "/[[:space:]]\/[[:space:]].*ext4/ s/PARTUUID=[0-9a-f-]*/PARTUUID=$PFX-$BSUF/" /mnt/ab/etc/fstab
+      umount /mnt/ab
+      # ficheros de cmdline por slot + tryboot (los usa qvadis-ota)
+      sed "s/root=PARTUUID=[0-9a-f-]*/root=PARTUUID=$PFX-03/" "$CMD" > /boot/firmware/cmdline_a.txt
+      sed "s/root=PARTUUID=[0-9a-f-]*/root=PARTUUID=$PFX-02/" "$CMD" > /boot/firmware/cmdline_b.txt
+      say "A/B listo (slot B = $PFX-$BSUF). El OTA usara tryboot con rollback."
+    else
+      say "A/B omitido."
+    fi
+  else
+    say "no hay segunda particion de 3,5G -> A/B omitido (OTA de ficheros seguira disponible sin doble slot)."
+  fi
+fi
+
+say "Instalacion completada."
+if [ "$DO_REBOOT" = 1 ] && confirm "Reiniciar ahora para arrancar el videoportero?"; then
+  sync; reboot
+else
+  say "Reinicia cuando quieras: sudo reboot"
+fi

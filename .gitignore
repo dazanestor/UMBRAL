@@ -1,0 +1,64 @@
+# ── Secretos / claves privadas — NUNCA publicar ───────────────────
+service.qvadis
+*.key
+*.pem
+id_rsa*
+id_ed25519*
+config.local
+CREDENCIALES.local.md
+*.local.md
+**/fcm-service-account.json
+**/wpa_supplicant-wlan0.conf.real
+
+# ── Volcados de firmware / imágenes / backups — NO publicar ───────
+backups/
+*.img
+*.img.gz
+*.img.xz
+boot-p1*.tar.gz
+
+# ── Android: artefactos de compilación y config propia ────────────
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/gradle/wrapper/gradle-wrapper.jar
+*.iml
+.idea/
+# Firebase: cada cual usa su propio proyecto (ver android/README.md)
+android/app/google-services.json
+# Keystore de firma del APK — NUNCA publicar (la clave privada de la app)
+*.jks
+*.keystore
+keystore.properties
+
+# ── APK original propietario de Qvadis — NO redistribuir ──────────
+apk/*.xapk
+apk/*.apks
+
+# ── Bundles grandes / copias sueltas ──────────────────────────────
+qvadis_software.zip
+*.log
+!docs/*.log
+
+# ── Temporales ────────────────────────────────────────────────────
+*.tmp
+*.swp
+scratchpad/
+
+# ── Artefactos internos de desarrollo (no publicar) ───────────────
+docs/progreso.md
+docs/*.log
+
+# ── Solo se publica el README raíz; el resto de .md son internos ───
+*.md
+!/README.md
+# Manuales propietarios de Qvadis (copyright) — NO redistribuir
+*.pdf
+# Fotos de la placa — no se publican (solo las capturas de pantalla, docs/screenshots/)
+docs/fotos/
+# APK: se publica como asset de Release, no versionado
+apk/*.apk
+/qvadis-manager.js
+deploy/var/lib/qvadis/config.json
+deploy/var/lib/qvadis/calls.json

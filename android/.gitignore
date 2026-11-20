@@ -1,0 +1,8 @@
+*.iml
+.gradle/
+/local.properties
+/build/
+app/build/
+.idea/
+# secretos de Firebase (cada quien pone el suyo)
+app/google-services.json
