@@ -76,7 +76,7 @@ App móvil (Android):
 - WiFi: **RTL8723BU** (interno de la placa portadora). Es un combo WiFi+Bluetooth; el **Bluetooth se deshabilita** a propósito (no se usa y su coexistencia en 2.4 GHz desestabiliza el WiFi).
 - Retroiluminación en **GPIO7** (PWM invertido). Puertas en **GPIO24** (principal) y **GPIO26** (auxiliar). Timbre en **GPIO25**. Presencia (PIR) en **GPIO9**.
 
-> El **adaptador QDS** (Qvadis DS Adapter) es un **módulo físico externo opcional**, específico de los porteros **Fermax ADS/VDS** (solo audio). Su integración **todavía no está soportada** (ver [Limitaciones y hoja de ruta](#limitaciones-y-hoja-de-ruta)) y **no es necesaria**: la función de "calle" se cubre con una fuente **IP (SIP)** o con un **botón + abrepuertas por GPIO** más una **cámara IP** externa.
+> El **adaptador QDS** (Qvadis DS Adapter) es un **módulo físico externo**, específico de los porteros **Fermax ADS/VDS** (solo audio). Su integración **todavía no está soportada** (ver [Limitaciones y hoja de ruta](#limitaciones-y-hoja-de-ruta)).
 
 ---
 
@@ -296,7 +296,7 @@ docs/              Documentación, PDFs de referencia y capturas (docs/screensho
 ## Limitaciones y hoja de ruta
 
 - **App Android nativa (UMBRAL)**: **implementada**, en [`android/`](android/) (Kotlin; Linphone SIP‑TLS/SRTP, OkHttp con pinning, FCM, ZXing). Compila con `android/build.sh` (JDK 17 + Gradle portables) → APK `arm64‑v8a`. Backend completo: SIP‑TLS/SRTP, HTTPS con token + pinning (puerta/cámara), push FCM al sonar, datos de emparejamiento por QR (token, huella del cert, puertos, dominio).
-- **QDS (Fermax)**: integración **opcional** no implementada (requiere el módulo físico).
+- **QDS (Fermax)**: integración no implementada (requiere el módulo físico).
 - **RTSP** validado por equivalencia (requiere una cámara RTSP real para confirmación final).
 - **CGNAT**: si tu operador no te da IP pública, el acceso por puertos no funciona; haría falta VPN/malla o un relay (no incluido).
 
