@@ -93,9 +93,18 @@ En un equipo de fábrica accesible por SSH, instala Raspberry Pi OS Lite en la p
 
 > 🔑 **Acceso al equipo de fábrica (SSH):** la liberación necesita acceso *root* por SSH al sistema de stock. Las **credenciales/clave de servicio NO se incluyen en este repositorio** (son parte del firmware propietario y una misma clave podría abrir equipos de otras personas). Cada usuario debe **conseguirlas por sus propios medios** —hilos y foros de la comunidad, grupos de Telegram, etc.— y usarlas **únicamente en equipos de su propiedad**. Como alternativa sin esa clave: acceso físico a la eMMC con **IO board + `rpiboot`** para resetear la contraseña en `/etc/shadow` o añadir tu propia clave SSH.
 
+El sistema de fábrica **no tiene `rsync` ni espacio** para la imagen descomprimida, así que primero se genera un **paquete** en tu PC y la pantalla solo lo descomprime en streaming:
+
 ```bash
-sudo IMG=/ruta/raspios-lite-armhf.img.xz ./liberar.sh
+# En tu PC (necesita Docker, sfdisk y xz; no hace falta sudo):
+scripts/preparar-rpios.sh 2026-xx-xx-raspios-trixie-armhf-lite.img.xz rpios-bundle.tar
+# Copia el paquete y este repo a la pantalla (scp) y, EN la pantalla:
+sudo BUNDLE=/ruta/rpios-bundle.tar ./liberar.sh
 ```
+
+`liberar.sh` pregunta la contraseña del usuario `pi` y tu WiFi, y deja configurado el **primer arranque**: usuario `pi`, SSH y WiFi con `wpa_supplicant@wlan0` + `systemd-networkd` (la placa **no tiene Ethernet**: sin WiFi no podrías entrar). Tras reiniciar, entra por SSH como `pi` (la IP la da tu router) y sigue con el paso 2.
+
+> **Estado de las pruebas:** la lógica de `liberar.sh` se ha probado sobre un **disco simulado** con el layout real de la eMMC (p1 de 64 MB con el boot de fábrica, p2/p3) y el paquete generado desde la imagen de Raspberry Pi OS real. **No se ha probado en una pantalla real ni se ha arrancado el resultado.**
 
 > ⚠️ **Operación de ida.** El boot (p1) es compartido: al poner el firmware de RPi OS, el sistema de fábrica deja de arrancar. **Haz un backup completo antes** (desde tu PC):
 > ```bash
@@ -230,8 +239,7 @@ Para contestar y abrir **desde fuera**, sin nube de pago, autoalojado. Resumen:
 - **Protocolos expuestos** (los que hay que **reenviar en tu router** hacia la placa):
   - **SIP‑TLS `5061/tcp`** — señalización cifrada; audio **SRTP** (cifrado).
   - **HTTPS `8443/tcp`** — cámara y abrir puerta, **con token** por móvil.
-  - **Para el audio de las llamadas**: rango **RTP `10000‑10020/udp`** (mínimo; antes 10000‑20000).
-  - **El SSH (22) NO se expone nunca.**
+  - **Para el audio de las llamadas**: rango **RTP `10000‑10020/udp`**.
 - **Dominio/DDNS**: para tener un nombre fijo aunque tu IP cambie. Con **DuckDNS** (gratis):
   1. Entra en **[duckdns.org](https://www.duckdns.org)** e inicia sesión con una cuenta (Google, GitHub, etc.).
   2. Crea un **subdominio** (p. ej. `tucasa.duckdns.org`) y copia el **token** que te muestra arriba.
@@ -289,7 +297,8 @@ deploy/            Árbol que se copia al equipo (mirror de rutas del sistema)
   var/lib/qvadis/  (config/estado en runtime)
 android/           App Android UMBRAL (código Kotlin + build.sh)
 apk/               umbral.apk (compilado para instalar)
-liberar.sh         Stock → Raspberry Pi OS (por SSH)
+liberar.sh         Stock → Raspberry Pi OS (por SSH, desde el paquete de preparar-rpios.sh)
+scripts/preparar-rpios.sh   (en tu PC) imagen de Raspberry Pi OS → paquete para liberar.sh
 install.sh         Provisiona la pila Qvadis (+ A/B)
 config.local.example  Plantilla de respuestas para install.sh --answers
 docs/              Documentación, PDFs de referencia y capturas (docs/screenshots/)

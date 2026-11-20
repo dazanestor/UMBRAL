@@ -62,3 +62,6 @@ apk/*.apk
 /qvadis-manager.js
 deploy/var/lib/qvadis/config.json
 deploy/var/lib/qvadis/calls.json
+
+# Paquete generado por scripts/preparar-rpios.sh (cientos de MB; no publicar)
+rpios-bundle*.tar
