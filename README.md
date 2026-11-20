@@ -4,7 +4,11 @@ Firmware y herramientas **abiertas** para reutilizar, reparar y liberar la panta
 
 Este proyecto sustituye el sistema de fábrica por **Raspberry Pi OS Lite** + una pila propia (kiosco, SIP sin nube, cámara, actualizaciones OTA con rollback y acceso remoto autoalojado), **sin depender de ningún servidor externo**.
 
-> **Aviso:** proyecto comunitario **no afiliado** a Qvadis Innova, S.L. "Qvadis", "Fermax", "VDS/ADS" son marcas de sus titulares. Úsalo solo en equipos de tu propiedad. Sin garantía.
+> ⚠️ **Proyecto en desarrollo.** Puede contener errores y cambios que rompan la compatibilidad. Úsalo bajo tu propia responsabilidad.
+>
+> **Sin garantía de ningún tipo.** El autor **NO se hace responsable de ningún daño** (hardware, software, pérdida de datos o de servicio) causado a **cualquier equipo** por el uso de este proyecto. Trabaja **solo sobre equipos de tu propiedad** y haz una copia de seguridad antes de empezar.
+>
+> Proyecto comunitario **no afiliado** a Qvadis Innova, S.L. "Qvadis", "Fermax", "VDS/ADS" son marcas de sus respectivos titulares.
 
 ---
 
