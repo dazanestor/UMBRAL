@@ -42,10 +42,19 @@ say "Raiz actual: $ROOTPUUID (prefijo $PFX)"
 PKGS="nodejs cog libwpewebkit-2.0-1 libgles2 libegl1 libgbm1 mesa-libgallium fontconfig fonts-inter \
 asterisk baresip alsa-utils pigpio ffmpeg iw rfkill rsync curl openssl python3 wpasupplicant fail2ban nftables \
 pulseaudio pulseaudio-utils libwebrtc-audio-processing-1-3 \
-plymouth plymouth-themes wpa_supplicant"
+plymouth plymouth-themes baresip-x11 rtkit asterisk-core-sounds-es-gsm"
 say "instalando dependencias (apt)..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
+# Kernels v6/v8 sobran en el CM3+ (solo v7): liberan espacio y evitan que raspi-firmware copie kernels e
+# initramfs extra a la p1 de 64 MB. Va ANTES de instalar paquetes: el postinst de plymouth genera un
+# initramfs (~14 MB) por CADA kernel instalado y desbordaria la p1 (como se hizo en la unidad de pruebas)
+if [ "$(uname -m)" = armv7l ] && uname -r | grep -q -- '-rpi-v7$'; then
+  OLDK="$(dpkg -l 'linux-image-*rpi-v6' 'linux-image-*rpi-v8' 'linux-headers-*rpi-v6' 'linux-headers-*rpi-v8' 'linux-base-*rpi-v6' 'linux-base-*rpi-v8' 2>/dev/null | awk '/^ii/{print $2}' || true)"
+  # shellcheck disable=SC2086
+  [ -z "$OLDK" ] || { say "quitando kernels v6/v8 no usados..."; apt-get purge -y $OLDK || true; apt-get autoremove --purge -y || true; }
+fi
+
 # shellcheck disable=SC2086
 apt-get install -y --no-install-recommends $PKGS || { err "fallo apt; revisa red/espacio"; exit 1; }
 
@@ -73,12 +82,13 @@ CFG=/boot/firmware/config.txt; CMD=/boot/firmware/cmdline.txt
 cp -n "$CFG" "$CFG.qvadis-orig" 2>/dev/null || true
 cp -n "$CMD" "$CMD.qvadis-orig" 2>/dev/null || true
 # Anadir bloque Qvadis a config.txt (idempotente): lineas del panel (gpio/kms/goodix/hdmi/splash...)
-if ! grep -q "QVADIS-BEGIN" "$CFG"; then
-  # el vc4-kms de serie se sustituye por el nuestro (evita cargarlo dos veces)
-  sed -i -E 's/^(dtoverlay=vc4-f?kms-v3d.*)$/#\1  # QVADIS: sustituido abajo/' "$CFG"
-  { echo ""; echo "# QVADIS-BEGIN (panel Qvadis; no editar a mano)"
-    grep -E '^(arm_64bit|kernel=|enable_uart|dtparam=|display_rotate|gpio=|dtoverlay=vc4-kms|dtoverlay=goodix|hdmi_|disable_splash|auto_initramfs|disable_overscan|framebuffer_|max_framebuffers)' "$DEPLOY/boot/firmware/config.txt"
-    echo "# QVADIS-END"; } >> "$CFG"
+# Solo se anaden las lineas que aun no estan (tras liberar.sh el config.txt ya es el nuestro: no se duplica nada)
+NEWCFG="$(grep -E '^(arm_64bit|kernel=|enable_uart|dtparam=|display_rotate|gpio=|dtoverlay=vc4-kms|dtoverlay=goodix|hdmi_|disable_splash|auto_initramfs|disable_overscan|framebuffer_|max_framebuffers)' "$DEPLOY/boot/firmware/config.txt" \
+  | while IFS= read -r l; do grep -qxF "$l" "$CFG" || printf '%s\n' "$l"; done)"
+if [ -n "$NEWCFG" ] && ! grep -q "QVADIS-BEGIN" "$CFG"; then
+  # el vc4-kms de serie (sin ,audio=off) se sustituye por el nuestro (evita cargarlo dos veces)
+  sed -i -E 's/^(dtoverlay=vc4-f?kms-v3d)$/#\1  # QVADIS: sustituido abajo/' "$CFG"
+  { echo ""; echo "# QVADIS-BEGIN (panel Qvadis; no editar a mano)"; printf '%s\n' "$NEWCFG"; echo "# QVADIS-END"; } >> "$CFG"
 fi
 # cmdline: fusionar nuestros parametros, conservando el root REAL de esta placa
 CUR="$(cat "$CMD")"
@@ -132,7 +142,7 @@ else
   mkdir -p /var/lib/qvadis; echo "{\"pin\":\"$PANEL_PIN\"}" > "$CJ"
 fi
 chown -R pi:pi /var/lib/qvadis 2>/dev/null || true
-timedatectl set-timezone "$TZ" 2>/dev/null || ln -sf "/usr/share/zoneinfo/$TZ" /etc/localtime
+timedatectl set-timezone "$TZ" 2>/dev/null || { ln -sf "/usr/share/zoneinfo/$TZ" /etc/localtime; echo "$TZ" > /etc/timezone; }
 
 # ---------- 4b) certificado TLS autofirmado (SIP-TLS/SRTP; la app lo fija por pinning) ----------
 say "certificado TLS autofirmado..."
@@ -165,11 +175,13 @@ chmod 0755 /var/lib/qvadis/audio-aec-up.sh /opt/qvadis-ui/intercom-on.sh /opt/qv
 # ---------- 5) servicios ----------
 say "habilitando servicios..."
 systemctl daemon-reload
-for s in pigpiod systemd-networkd wpa_supplicant@wlan0 nftables fail2ban \
+for s in ssh pigpiod systemd-networkd wpa_supplicant@wlan0 nftables fail2ban \
          qvadis-manager qvadis-kiosk qvadis-sip qvadis-wifi-powersave \
          qvadis-wifi-reset qvadis-wifi-reset.timer qvadis-ota-confirm; do
   systemctl enable "$s" 2>/dev/null || say "aviso: no se pudo habilitar $s"
 done
+# Sin asistentes interactivos de primer arranque (la pantalla no tiene teclado)
+systemctl mask userconfig.service systemd-firstboot.service 2>/dev/null || true
 # Asterisk: sin chan_sip (usamos PJSIP); el modules.conf de deploy ya lo gestiona
 systemctl enable asterisk 2>/dev/null || true
 # Bluetooth: deshabilitado (combo rtl8723bu WiFi+BT; su coexistencia tira el WiFi y no se usa).

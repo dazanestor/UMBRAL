@@ -177,6 +177,8 @@ en multi-user.target wpa_supplicant@.service wpa_supplicant@wlan0.service
 en multi-user.target systemd-networkd.service
 en sockets.target systemd-networkd.socket
 ln -sf "$U/systemd-networkd.service" "$W/dbus-org.freedesktop.network1.service"
+# sin asistentes interactivos de primer arranque (la pantalla no tiene teclado)
+ln -sf /dev/null "$W/userconfig.service"; ln -sf /dev/null "$W/systemd-firstboot.service"
 [ -e "$D$U/systemd-network-generator.service" ] && en sysinit.target systemd-network-generator.service
 # red: DHCP por systemd-networkd en wlan0; NM no gestiona wlan0; DNS fijo (sin systemd-resolved)
 mkdir -p "$D/etc/systemd/network" "$D/etc/NetworkManager/conf.d" "$D/etc/modprobe.d"
