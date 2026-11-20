@@ -31,6 +31,7 @@ confirm(){ [ "$ASSUME_YES" = 1 ] && return 0; local a; read -r -p "$1 [s/N]: " a
 [ -d "$DEPLOY" ] || { err "no encuentro deploy/ junto a install.sh"; exit 1; }
 [ -d /boot/firmware ] || { err "no es un RPi OS reciente (falta /boot/firmware)"; exit 1; }
 grep -qi raspberry /proc/device-tree/model 2>/dev/null || say "aviso: el modelo no dice 'Raspberry'; continuo igual"
+id pi >/dev/null 2>&1 || { err "falta el usuario 'pi' (los servicios corren como pi). Crealo antes (Raspberry Pi Imager / userconf.txt)"; exit 1; }
 ROOTPUUID="$(findmnt -no PARTUUID / 2>/dev/null || true)"
 [ -n "$ROOTPUUID" ] || { err "no puedo determinar el PARTUUID de /"; exit 1; }
 PFX="${ROOTPUUID%-*}"
@@ -38,9 +39,9 @@ say "Raiz actual: $ROOTPUUID (prefijo $PFX)"
 [ -f "$ANSWERS" ] && { say "leyendo respuestas de $ANSWERS"; . "$ANSWERS"; }
 
 # ---------- 1) dependencias ----------
-PKGS="cog libwpewebkit-2.0-1 libgles2 fontconfig fonts-inter \
-asterisk baresip alsa-utils pigpio ffmpeg iw rfkill rsync wpasupplicant fail2ban nftables \
-pulseaudio pulseaudio-utils \
+PKGS="nodejs cog libwpewebkit-2.0-1 libgles2 libegl1 libgbm1 mesa-libgallium fontconfig fonts-inter \
+asterisk baresip alsa-utils pigpio ffmpeg iw rfkill rsync curl openssl python3 wpasupplicant fail2ban nftables \
+pulseaudio pulseaudio-utils libwebrtc-audio-processing-1-3 \
 plymouth plymouth-themes wpa_supplicant"
 say "instalando dependencias (apt)..."
 export DEBIAN_FRONTEND=noninteractive
@@ -58,6 +59,10 @@ rsync -aHAX "$DEPLOY/root/" /root/
 rsync -aHAX "$DEPLOY/etc/"  /etc/
 # Red: DHCP por defecto SOLO si no hay ya un fichero (no se pisa una IP fija; la OTA tampoco lo toca)
 [ -f /etc/systemd/network/10-wlan0.network ] || install -D -m0644 /usr/share/qvadis/10-wlan0.network.default /etc/systemd/network/10-wlan0.network
+# Version instalada = la del repo (el OTA la compara con VERSION remoto)
+install -m0644 "$HERE/VERSION" /etc/qvadis-version 2>/dev/null || true
+# Grupos de pi: asterisk (socket de control de Asterisk), audio/video/render/input (kiosco, audio), gpio (pigpio), netdev (wpa_supplicant)
+for g in asterisk audio video render input gpio netdev; do getent group "$g" >/dev/null 2>&1 && usermod -aG "$g" pi; done
 chmod 0440 /etc/sudoers.d/qvadis 2>/dev/null || true
 chmod 0755 /usr/local/sbin/qvadis-* 2>/dev/null || true
 mkdir -p /var/lib/qvadis/snaps
@@ -69,13 +74,15 @@ cp -n "$CFG" "$CFG.qvadis-orig" 2>/dev/null || true
 cp -n "$CMD" "$CMD.qvadis-orig" 2>/dev/null || true
 # Anadir bloque Qvadis a config.txt (idempotente): lineas del panel (gpio/kms/goodix/hdmi/splash...)
 if ! grep -q "QVADIS-BEGIN" "$CFG"; then
+  # el vc4-kms de serie se sustituye por el nuestro (evita cargarlo dos veces)
+  sed -i -E 's/^(dtoverlay=vc4-f?kms-v3d.*)$/#\1  # QVADIS: sustituido abajo/' "$CFG"
   { echo ""; echo "# QVADIS-BEGIN (panel Qvadis; no editar a mano)"
-    grep -E '^(gpio=|dtoverlay=vc4-kms|dtoverlay=goodix|hdmi_|disable_splash|auto_initramfs|disable_overscan|framebuffer_|max_framebuffers)' "$DEPLOY/boot/firmware/config.txt"
+    grep -E '^(arm_64bit|kernel=|enable_uart|dtparam=|display_rotate|gpio=|dtoverlay=vc4-kms|dtoverlay=goodix|hdmi_|disable_splash|auto_initramfs|disable_overscan|framebuffer_|max_framebuffers)' "$DEPLOY/boot/firmware/config.txt"
     echo "# QVADIS-END"; } >> "$CFG"
 fi
 # cmdline: fusionar nuestros parametros, conservando el root REAL de esta placa
 CUR="$(cat "$CMD")"
-for p in dwc_otg.lpm_enable=0 dwc_otg.speed=1 quiet loglevel=3 logo.nologo \
+for p in dwc_otg.lpm_enable=0 dwc_otg.speed=1 cfg80211.ieee80211_regdom=ES quiet loglevel=3 logo.nologo \
          vt.global_cursor_default=0 plymouth.ignore-serial-consoles splash; do
   grep -qw -- "$p" <<<"$CUR" || CUR="$CUR $p"
 done

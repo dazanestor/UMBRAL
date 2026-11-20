@@ -121,7 +121,7 @@ fi
 # cmdline: base de RPi OS + nuestros parametros + root al destino
 BASECMD="$(cat "$WORK/img-boot/cmdline.txt" 2>/dev/null || echo 'console=serial0,115200 rootfstype=ext4 fsck.repair=yes rootwait')"
 CMD="$(sed -E 's#root=[^ ]+##; s/console=tty1/console=tty3/' <<<"$BASECMD")"
-for p in dwc_otg.lpm_enable=0 dwc_otg.speed=1 console=tty3 root=PARTUUID=$SPUUID quiet loglevel=3 \
+for p in dwc_otg.lpm_enable=0 dwc_otg.speed=1 cfg80211.ieee80211_regdom=ES console=tty3 root=PARTUUID=$SPUUID quiet loglevel=3 \
          logo.nologo vt.global_cursor_default=0 plymouth.ignore-serial-consoles splash; do
   grep -qw -- "$p" <<<"$CMD" || CMD="$CMD $p"
 done
