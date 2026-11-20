@@ -459,6 +459,32 @@ setInterval(() => {
   });
 }, 500);
 
+// --- Cámara MJPEG: UN solo ffmpeg compartido por TODOS los clientes ---
+// Antes cada <img>/cliente lanzaba su propio ffmpeg -> 2ª sesión RTSP al mismo stream
+// (muchas cámaras/tokens permiten solo UNA) + doble transcodificación en la CM3+ -> parpadeo.
+// Ahora un único ffmpeg lee el origen y difunde su salida mpjpeg a todos los clientes.
+let camFF = null, camClients = [], camStopTimer = null;
+function camStart() {
+  if (camFF) return;
+  const c = CFG.camera || {};
+  if (!c.enabled || !c.url) return;
+  const args = ['-nostdin', '-loglevel', 'error'];
+  if (/^rtsp:/i.test(c.url)) args.push('-rtsp_transport', 'tcp');
+  args.push('-i', c.url, '-f', 'mpjpeg', '-q:v', '5', '-r', '12', '-');
+  try { camFF = spawn('ffmpeg', args); } catch (e) { camFF = null; return; }
+  camFF.stdout.on('data', (chunk) => { for (const r of camClients) { try { r.write(chunk); } catch (e) {} } });
+  camFF.stderr.on('data', () => {});
+  camFF.on('error', () => { camFF = null; });
+  camFF.on('close', () => { camFF = null; if (camClients.length) setTimeout(camStart, 1500); });
+}
+function camStopMaybe() {
+  clearTimeout(camStopTimer);
+  camStopTimer = setTimeout(() => {
+    if (camClients.length === 0 && camFF) { try { camFF.kill('SIGKILL'); } catch (e) {} camFF = null; }
+  }, 2000);
+}
+function camRestart() { if (camFF) { try { camFF.kill('SIGKILL'); } catch (e) {} camFF = null; } } // al cambiar la URL
+
 function handler(req, res, remote) {
   let u;
   try { u = new URL(req.url, 'http://localhost'); } catch (e) { res.writeHead(400); return res.end('bad'); }
@@ -497,6 +523,7 @@ function handler(req, res, remote) {
     const type = (u.searchParams.get('type') || 'mjpeg');
     CFG.camera = { enabled: enabled && !!url, url, type };
     saveConfig();
+    camRestart();   // reinicia el ffmpeg compartido con la nueva URL (o lo para si se desactiva)
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({ ok: true, camera: CFG.camera }));
   }
@@ -519,17 +546,12 @@ function handler(req, res, remote) {
   }
   if (u.pathname === '/api/camera/stream.mjpg') {
     if (!CFG.camera || !CFG.camera.enabled || !CFG.camera.url) { res.writeHead(503); return res.end('no cam'); }
-    const url = CFG.camera.url;
-    const args = ['-nostdin', '-loglevel', 'error'];
-    if (/^rtsp:/i.test(url)) args.push('-rtsp_transport', 'tcp');
-    args.push('-i', url, '-f', 'mpjpeg', '-q:v', '5', '-r', '12', '-');
     res.writeHead(200, { 'Content-Type': 'multipart/x-mixed-replace;boundary=ffmpeg', 'Cache-Control': 'no-cache', 'Connection': 'close' });
-    const cp = spawn('ffmpeg', args);
-    cp.stdout.pipe(res);
-    cp.stderr.on('data', () => {});
-    const kill = () => { try { cp.kill('SIGKILL'); } catch (e) {} };
-    req.on('close', kill); res.on('close', kill);
-    cp.on('error', () => { try { res.end(); } catch (e) {} });
+    camClients.push(res);          // todos los clientes comparten UN ffmpeg (ver camStart)
+    clearTimeout(camStopTimer);
+    camStart();
+    const drop = () => { const i = camClients.indexOf(res); if (i >= 0) camClients.splice(i, 1); camStopMaybe(); };
+    req.on('close', drop); res.on('close', drop);
     return;
   }
   if (u.pathname === '/api/weather/search') {
