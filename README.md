@@ -22,7 +22,6 @@ Este proyecto sustituye el sistema de fábrica por **Raspberry Pi OS Lite** + un
 11. [Arquitectura (para desarrolladores)](#arquitectura-para-desarrolladores)
 12. [Estructura del repo](#estructura-del-repo)
 13. [Limitaciones y hoja de ruta](#limitaciones-y-hoja-de-ruta)
-14. [Checklist antes de entregar/publicar](#checklist-antes-de-entregarpublicar)
 
 ---
 
@@ -134,7 +133,7 @@ sudo ./install.sh --answers config.local --yes
 - Botón **Teléfono**: llamadas recientes (con foto) y móviles emparejados.
 
 ### Cuando llaman a la puerta
-Aparece una tarjeta a pantalla completa: **Atender**, **Rechazar** y **Abrir**. Suena a la vez en los móviles emparejados. Durante la llamada puedes **Silenciar** el micro, **Abrir** la puerta o **hacer una Foto**.
+Aparece una tarjeta **a pantalla completa** con el **vídeo de la cámara** de fondo (si hay): **Atender**, **Rechazar** y **Abrir**. Suena a la vez en los **móviles emparejados** y contesta quien lo haga primero. Durante la llamada puedes **Silenciar** tu micrófono (la calle deja de oírte), **Abrir** la puerta, **Colgar** o **hacer una Foto**. Si **atiendes en la pantalla**, se **corta la llamada a los móviles** (y al revés).
 
 ### Ajustes
 Toca el icono de ajustes. Todo se escribe con el **teclado en pantalla**.
@@ -255,17 +254,10 @@ docs/              Documentación, PDFs de referencia y capturas (docs/screensho
 
 ---
 
-## Checklist antes de entregar/publicar
-
-- [ ] **Cambiar el PIN de Ajustes** (de fábrica `1234`) → Ajustes → Seguridad · PIN.
-- [ ] **Rotar** la contraseña de rescate (`passwd pi`).
-- [ ] **Quitar** claves SSH de desarrollo de `~pi/.ssh/authorized_keys` y dejar solo la del dueño.
-- [ ] No publicar **`service.qvadis`**, `backups/`, imágenes, el **APK propietario** de Qvadis (`apk/*.xapk`), tu **`google-services.json`** ni la MAC (ya excluidos por `.gitignore`; revisa `docs/fotos/`).
-- [ ] Colocar tu **`fcm-service-account.json`** si usas push.
-- [ ] Reenviar en el router **solo** 5061 y 8443 (y RTP si hace falta), **nunca el 22**.
-
----
-
 ## Licencia y créditos
 
-Proyecto comunitario de reparación y reutilización. Sin ánimo de lucro y sin afiliación con el fabricante original. Define aquí la licencia que prefieras (p. ej. MIT o GPL‑3.0) antes de publicar.
+Proyecto comunitario de reparación y reutilización, **sin ánimo de lucro** y sin afiliación con el fabricante original.
+
+Publicado bajo la **[PolyForm Noncommercial License 1.0.0](LICENSE)**: puedes **usar, estudiar, modificar y compartir** el código libremente **para fines no comerciales**. **No se permite ningún uso comercial** — nadie puede **cobrar ni vender** productos o servicios basados en este código sin permiso del autor. Es una licencia *source-available* **no comercial** (no una licencia OSI "open source" clásica, precisamente porque esas sí permiten el uso comercial).
+
+"Qvadis", "Fermax", "VDS/ADS" son marcas de sus respectivos titulares; este proyecto no está afiliado a ellos.
