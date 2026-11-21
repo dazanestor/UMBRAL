@@ -138,11 +138,11 @@ El repositorio **no contiene contraseñas reales** (solo *placeholders* `CHANGE_
 
 | Credencial | Valor por defecto | Cómo se fija / cambia |
 |---|---|---|
-| **PIN de Ajustes** | **`1234`** | `install.sh` lo pregunta (vacío = `1234`). Cambiar en **Ajustes → Seguridad · PIN**. |
-| **Contraseña SIP del panel** (extensión `1000`) | la que pongas en `install.sh` (`SIP_PASS`) | `config.local` o el asistente. En el repo es `CHANGE_ME`. |
+| **PIN de Ajustes** | **`1234`** | `install.sh` lo pregunta (4-6 dígitos; vacío = `1234`) y avisa al terminar si sigue siendo el de fábrica. Cambiar en **Ajustes → Seguridad · PIN**. |
+| **Contraseña SIP del panel** (extensión `1000`) | la que pongas en `install.sh` (`SIP_PASS`, 8-64 caracteres: letras, números y `. _ ~ + -`); **si la dejas vacía se genera una aleatoria** (no hace falta recordarla) | `config.local` o el asistente. En el repo es `CHANGE_ME`, que **nunca** se deja instalada. |
 | **Contraseña SIP de cada móvil** | **aleatoria** al emparejar | se muestra en el **QR**; no se edita a mano. |
-| **WiFi (SSID + clave)** | la que pongas en `install.sh` | **Ajustes → WiFi**, o `config.local`. |
-| **Usuario `pi`** (SSH / rescate) | la que definiste al instalar Raspberry Pi OS | `passwd pi` (cámbiala tras liberar). |
+| **WiFi (SSID + clave de 8-63 caracteres)** | la que pongas en `liberar.sh` / `install.sh` | **Ajustes → WiFi**, o `config.local`. |
+| **Usuario `pi`** (SSH / rescate) | la que escribiste en `liberar.sh`; `install.sh` **no** la cambia | `passwd pi` (cámbiala tras liberar). |
 | **Zona horaria** | `Europe/Madrid` | `config.local` (`TZ`) o **Ajustes → Fecha y hora**. |
 
 Para una instalación **desatendida**, copia `config.local.example` → `config.local` y rellena:

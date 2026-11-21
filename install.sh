@@ -139,12 +139,26 @@ else PANEL_PIN="${PANEL_PIN:-$(ask 'PIN del panel (4 digitos)' 1234)}"; fi
 DEFTZ=Europe/Madrid; [ -f "$CJ" ] && [ -s /etc/timezone ] && DEFTZ="$(cat /etc/timezone)"
 TZ="${TZ:-$(ask 'Zona horaria' "$DEFTZ")}"
 
+# --- validacion: estos valores se escriben en ficheros de configuracion; caracteres raros los romperian en silencio ---
+case "$WIFI_SSID$WIFI_PASS" in *[[:cntrl:]]*) err "SSID/clave WiFi con caracteres de control"; exit 1;; esac
+if [ -n "$WIFI_SSID" ] && [ -n "$WIFI_PASS" ]; then
+  { [ ${#WIFI_PASS} -ge 8 ] && [ ${#WIFI_PASS} -le 63 ]; } || { err "la clave WiFi debe tener entre 8 y 63 caracteres (si no, la WiFi no conectara al reiniciar)"; exit 1; }
+fi
+if [ -n "$SIP_PASS" ] && ! [[ "$SIP_PASS" =~ ^[A-Za-z0-9._~+-]{8,64}$ ]]; then
+  err "la clave SIP debe tener 8-64 caracteres entre letras, numeros y . _ ~ + - (otros romperian pjsip.conf/baresip)"; exit 1; fi
+if [ "$PIN_KEEP" != 1 ] && ! [[ "${PANEL_PIN:-}" =~ ^[0-9]{4,6}$ ]]; then err "el PIN del panel debe tener 4-6 digitos"; exit 1; fi
+# Clave SIP vacia: NUNCA dejar la de plantilla (CHANGE_ME es publica y el UDP 5060 esta abierto en la LAN): se genera una al azar.
+# No hace falta recordarla: panel y baresip la leen de los ficheros y los moviles se emparejan por QR.
+if [ -z "$SIP_PASS" ] && grep -qs CHANGE_ME /etc/asterisk/pjsip.conf /root/.baresip/accounts; then
+  SIP_PASS="$(openssl rand -hex 16)"; say "clave SIP generada al azar (no hace falta recordarla: los moviles se emparejan por QR)"
+fi
+
 WPA=/etc/wpa_supplicant/wpa_supplicant-wlan0.conf
 if [ -n "$WIFI_SSID" ]; then
   PMK="$(wpa_passphrase "$WIFI_SSID" "$WIFI_PASS" 2>/dev/null | grep -oP '^\s*psk=\K[0-9a-f]{64}' || true)"
   {
     echo "ctrl_interface=DIR=/run/wpa_supplicant GROUP=netdev"; echo "update_config=1"; echo "country=ES"
-    echo "network={"; echo "	ssid=\"$WIFI_SSID\""; echo "	scan_ssid=1"; echo "	key_mgmt=WPA-PSK"
+    echo "network={"; echo "	ssid=$(printf '%s' "$WIFI_SSID" | od -An -tx1 | tr -d ' \n')"; echo "	scan_ssid=1"; echo "	key_mgmt=WPA-PSK"
     [ -n "$PMK" ] && echo "	psk=$PMK" || echo "	psk=\"$WIFI_PASS\""
     echo "	ieee80211w=0"; echo "}"
   } > "$WPA"; chmod 600 "$WPA"
@@ -245,6 +259,7 @@ if [ "$DO_AB" = 1 ]; then
 fi
 
 say "Instalacion completada."
+grep -qE '"pin": *"1234"' /var/lib/qvadis/config.json 2>/dev/null && say "AVISO: el PIN del panel es el de FABRICA (1234). Cambialo en Ajustes > Seguridad · PIN."
 if [ "$DO_REBOOT" = 1 ] && confirm "Reiniciar ahora para arrancar el videoportero?"; then
   sync; reboot
 else
