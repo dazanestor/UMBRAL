@@ -102,7 +102,7 @@ scripts/preparar-rpios.sh 2026-xx-xx-raspios-trixie-armhf-lite.img.xz rpios-bund
 sudo BUNDLE=/ruta/rpios-bundle.tar ./liberar.sh
 ```
 
-`liberar.sh` pregunta la contraseña del usuario `pi` y tu WiFi, y deja configurado el **primer arranque**: usuario `pi`, SSH y WiFi con `wpa_supplicant@wlan0` + `systemd-networkd` (la placa **no tiene Ethernet**: sin WiFi no podrías entrar). Tras reiniciar (tarda ~1 min en dar red), entra por SSH como **`pi`** con **la contraseña que escribiste en `liberar.sh`** (no se guarda en ningún sitio: apúntala). La dirección es `ssh pi@raspberrypi.local` si tu PC resuelve `.local` (mDNS) o, si no, la IP que tu router asigne a `raspberrypi`. Si indicaste `SSH_PUBKEY`, también entras con esa clave. Después sigue con el paso 2.
+`liberar.sh` pregunta la contraseña del usuario `pi` y tu WiFi (o léelos de las variables `PI_PASS`, `WIFI_SSID`, `WIFI_PASS` y, opcionalmente, `SSH_PUBKEY`), y deja configurado el **primer arranque**: usuario `pi`, SSH y WiFi con `wpa_supplicant@wlan0` + `systemd-networkd` (la placa **no tiene Ethernet**: sin WiFi no podrías entrar). Tras reiniciar (tarda ~1 min en dar red), entra por SSH como **`pi`** con **la contraseña que escribiste en `liberar.sh`** (no se guarda en ningún sitio: apúntala). La dirección es `ssh pi@raspberrypi.local` si tu PC resuelve `.local` (mDNS) o, si no, la IP que tu router asigne a `raspberrypi`. Si indicaste `SSH_PUBKEY`, también entras con esa clave. Después sigue con el paso 2.
 
 > **Estado de las pruebas:** la lógica de `liberar.sh` se ha probado sobre un **disco simulado** con el layout real de la eMMC (p1 de 64 MB con el boot de fábrica, p2/p3) y el paquete generado desde la imagen de Raspberry Pi OS real. **No se ha probado en una pantalla real ni se ha arrancado el resultado.**
 
@@ -153,6 +153,7 @@ WIFI_PASS="mi-contrasena-wifi"
 SIP_PASS="contrasena-sip"
 PANEL_PIN="1234"
 TZ="Europe/Madrid"
+QV_HOSTNAME="qvadis-rpi"   # opcional
 ```
 
 ```bash
@@ -263,7 +264,9 @@ La eMMC tiene **dos slots** iguales (A/B). Una actualización se instala en el *
 
 - **Ajustes → Actualización**: Buscar / Instalar. Comprobación automática en segundo plano.
 - Soporta también **subir de versión el sistema operativo** (`apt full-upgrade` en el slot inactivo, con copia del boot y rollback). Los módulos del kernel se sincronizan a ambos slots para que el rollback siga siendo válido.
-- Se activa fijando el repositorio en `/etc/qvadis-ota.conf` (`REPO="usuario/repo"`).
+- Viene **activada** apuntando a este repositorio (`REPO="dazanestor/UMBRAL"` en `/etc/qvadis-ota.conf`); si haces un *fork*, cambia el `REPO`. Se puede desactivar en Ajustes → Actualización.
+- **Cómo se publica una versión** (mantenedores): sube los cambios a `main` y **cambia el fichero `VERSION`**; la pantalla compara con `!=` y solo ofrece actualizar si es distinto. La OTA superpone `deploy/{opt,usr,etc}` y **nunca** toca la config WiFi, las claves SSH/SIP, `config.json` ni `calls.json`. Los scripts nuevos deben llevar el **bit de ejecución en git** (`git update-index --chmod=+x`): el tarball de GitHub conserva los modos y un script sin `+x` deja la OTA sin promocionar.
+- ⚠ **La OTA no verifica firmas**: quien pueda escribir en `main` controla todas las pantallas que apunten al repo. Activa la verificación en dos pasos de GitHub y protege la rama.
 
 Herramienta: `qvadis-ota status|check|update|os-upgrade|confirm|rollback`.
 
@@ -297,15 +300,18 @@ Herramienta: `qvadis-ota status|check|update|os-upgrade|confirm|rollback`.
 deploy/            Árbol que se copia al equipo (mirror de rutas del sistema)
   opt/qvadis-ui/   manager.js, www/ (UI), sonidos, vendor
   etc/             asterisk, systemd, wpa_supplicant, sudoers, nftables, fail2ban, boot
-  usr/local/sbin/  qvadis-wifi, qvadis-ota
-  var/lib/qvadis/  (config/estado en runtime)
+  usr/local/sbin/  qvadis-wifi, qvadis-net, qvadis-ota
+  usr/share/       tema de arranque (plymouth) y plantilla de red DHCP
+  var/lib/qvadis/  audio-aec-up.sh (la config/estado en runtime NO viaja aquí)
 android/           App Android UMBRAL (código Kotlin + build.sh)
 apk/               umbral.apk (compilado para instalar)
 liberar.sh         Stock → Raspberry Pi OS (por SSH, desde el paquete de preparar-rpios.sh)
 scripts/preparar-rpios.sh   (en tu PC) imagen de Raspberry Pi OS → paquete para liberar.sh
 install.sh         Provisiona la pila Qvadis (+ A/B)
 config.local.example  Plantilla de respuestas para install.sh --answers
-docs/              Documentación, PDFs de referencia y capturas (docs/screenshots/)
+VERSION            Versión publicada (la OTA compara con ella)
+LICENSE, THIRD-PARTY-NOTICES.txt   Licencias del proyecto y de terceros
+docs/              Documentación, capturas (docs/screenshots/) y logotipo de marca (docs/brand/)
 ```
 
 ---
@@ -314,6 +320,9 @@ docs/              Documentación, PDFs de referencia y capturas (docs/screensho
 
 - **App Android nativa (UMBRAL)**: **implementada**, en [`android/`](android/) (Kotlin; Linphone SIP‑TLS/SRTP, OkHttp con pinning, FCM, ZXing). Compila con `android/build.sh` (JDK 17 + Gradle portables) → APK `arm64‑v8a`. Backend completo: SIP‑TLS/SRTP, HTTPS con token + pinning (puerta/cámara), push FCM al sonar, datos de emparejamiento por QR (token, huella del cert, puertos, dominio).
 - **QDS (Fermax)**: integración no implementada (requiere el módulo físico).
+- **`liberar.sh` e `install.sh` solo se han probado en simulación** (disco simulado con el layout real de la eMMC y un chroot ARM de Raspberry Pi OS), **no en una pantalla de fábrica real**. La liberación es de ida y, si introduces mal el WiFi, la pantalla queda sin red (no tiene Ethernet) y solo se recupera por consola serie o con IO board.
+- **Kernel de la imagen más antiguo** que el de la unidad de pruebas (6.18.50 frente a 6.18.60): tras instalar, `sudo qvadis-ota os-upgrade`.
+- **Sin firmas en la OTA** (ver arriba).
 - **CGNAT**: si tu operador no te da IP pública, el acceso por puertos no funciona; haría falta VPN/malla o un relay (no incluido).
 
 ---
