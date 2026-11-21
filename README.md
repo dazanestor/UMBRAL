@@ -59,7 +59,7 @@ Pantallas reales del panel (datos de ejemplo):
 | **Volúmenes** | **Pantalla** | **No molestar** |
 | ![Volúmenes](docs/screenshots/04-volumenes.png) | ![Pantalla](docs/screenshots/05-pantalla.png) | ![No molestar](docs/screenshots/06-no-molestar.png) |
 
-Con cámara configurada — panel (caras del stream de demo difuminadas):
+Con cámara configurada — panel:
 
 | Inicio con cámara | Llamada |
 |:---:|:---:|
