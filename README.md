@@ -4,7 +4,7 @@
 
 # UMBRAL — Videoportero Open Source
 
-Firmware y herramientas **Open Source** para reutilizar, reparar y liberar la pantalla de videoportero **Qvadis One** (módulo Raspberry Pi **CM3+ / BCM2837B0**), que quedó inservible al cerrar la empresa y apagarse su nube.
+Firmware y herramientas **Open Source** para reutilizar, reparar y liberar la pantalla de videoportero **Qvadis One** (módulo Raspberry Pi **CM3+ / BCM2837B0**).
 
 Este proyecto sustituye el sistema de fábrica por **Raspberry Pi OS Lite** + una pila propia (kiosco, SIP sin nube, cámara, actualizaciones OTA con rollback y acceso remoto autoalojado), **sin depender de ningún servidor externo**.
 
