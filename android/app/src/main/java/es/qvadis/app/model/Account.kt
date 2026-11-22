@@ -30,12 +30,16 @@ data class Account(
             fun q(k: String) = u.getQueryParameter(k).orEmpty()
             val ext = q("ext"); val host = q("host")
             if (ext.isBlank() || host.isBlank()) return null
+            val fp = q("fp").replace(":", "").replace(" ", "")
+            if (!Regex("[0-9a-fA-F]{64}").matches(fp)) return null   // huella SHA-256 obligatoria
+            if (q("token").isBlank()) return null
+            fun port(k: String, d: Int) = (q(k).toIntOrNull() ?: d).takeIf { it in 1..65535 }
             return Account(
                 host = host,
                 domain = q("domain"),
-                sipPort = q("sipPort").toIntOrNull() ?: 5060,
-                tlsPort = q("tlsPort").toIntOrNull() ?: 5061,
-                httpsPort = q("httpsPort").toIntOrNull() ?: 8443,
+                sipPort = port("sipPort", 5060) ?: return null,
+                tlsPort = port("tlsPort", 5061) ?: return null,
+                httpsPort = port("httpsPort", 8443) ?: return null,
                 ext = ext,
                 secret = q("secret"),
                 token = q("token"),

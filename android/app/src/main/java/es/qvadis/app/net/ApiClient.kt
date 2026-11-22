@@ -12,8 +12,10 @@ class ApiClient(private val acc: Account) {
     val http: OkHttpClient = CertPinning.client(acc.fingerprintSha256)
     val fingerprint: String get() = acc.fingerprintSha256
 
+    private fun enc(s: String): String = java.net.URLEncoder.encode(s, "UTF-8")
+
     private fun url(path: String, extra: String = ""): String =
-        "${acc.httpsBase()}$path?token=${acc.token}$extra"
+        "${acc.httpsBase()}$path?token=${enc(acc.token)}$extra"
 
     /** Abre la puerta (which = front|aux). */
     @Throws(IOException::class)
@@ -39,12 +41,12 @@ class ApiClient(private val acc: Account) {
     fun cameraStreamUrl(): String = url("/api/camera/stream.mjpg")
 
     /** URL de una foto de llamadas recientes. */
-    fun snapUrl(file: String): String = url("/api/snap", "&f=$file")
+    fun snapUrl(file: String): String = url("/api/snap", "&f=${enc(file)}")
 
     /** Registra el token FCM de este dispositivo en la placa. */
     @Throws(IOException::class)
     fun registerFcm(fcmToken: String): Boolean {
-        val req = Request.Builder().url(url("/api/mobiles/fcm", "&fcm=$fcmToken")).build()
+        val req = Request.Builder().url(url("/api/mobiles/fcm", "&fcm=${enc(fcmToken)}")).build()
         http.newCall(req).execute().use { return it.isSuccessful }
     }
 
@@ -79,7 +81,7 @@ class ApiClient(private val acc: Account) {
     fun setRingVolume(v: Int): Boolean = hit("/api/ringtone/set", "&volume=$v")
     /** No molestar. */
     fun setDnd(enabled: Boolean, sched: Boolean, from: String, to: String): Boolean =
-        hit("/api/dnd/set", "&enabled=${if (enabled) 1 else 0}&sched=${if (sched) 1 else 0}&from=$from&to=$to")
+        hit("/api/dnd/set", "&enabled=${if (enabled) 1 else 0}&sched=${if (sched) 1 else 0}&from=${enc(from)}&to=${enc(to)}")
 
     /**
      * ¿La placa tiene cámara? Lee /api/device (campo "camera": true/false).

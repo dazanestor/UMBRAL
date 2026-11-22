@@ -90,7 +90,9 @@ class SipManager private constructor(private val appCtx: Context, private val ac
             runCatching { core.verifyServerCertificates(true) }
             runCatching { core.verifyServerCn(false) }   // CN del cert != dominio
         } else {
-            runCatching { core.verifyServerCertificates(false) }
+            // Sin cert anclado NO se desactiva la verificación: el registro falla (cerrado)
+            // en vez de exponer la contraseña SIP a un intermediario. Re-emparejar lo repara.
+            runCatching { core.verifyServerCertificates(true) }
             runCatching { core.verifyServerCn(false) }
         }
 
@@ -105,7 +107,7 @@ class SipManager private constructor(private val appCtx: Context, private val ac
         val host = runCatching {
             java.net.InetAddress.getByName(acc.sipDomain()).hostAddress
         }.getOrNull() ?: acc.sipDomain()
-        android.util.Log.i("QvadisSip", "server host resuelto: $host (dominio=${acc.sipDomain()})")
+        android.util.Log.i("QvadisSip", "server host resuelto")
 
         val params = core.createAccountParams()
         params.identityAddress = factory.createAddress("sip:${acc.ext}@${acc.sipDomain()}")
@@ -117,7 +119,7 @@ class SipManager private constructor(private val appCtx: Context, private val ac
         val account: LinAccount = core.createAccount(params)
         core.addAccount(account)
         core.defaultAccount = account
-        android.util.Log.i("QvadisSip", "buildCore: ext=${acc.ext} id=sip:${acc.ext}@${acc.sipDomain()} server=sip:${acc.sipDomain()}:${acc.tlsPort};transport=tls hasPem=${pem.contains("BEGIN CERTIFICATE")}")
+        android.util.Log.i("QvadisSip", "buildCore: hasPem=${pem.contains("BEGIN CERTIFICATE")}")
 
         core.addListener(object : CoreListenerStub() {
             override fun onAccountRegistrationStateChanged(c: Core, a: LinAccount, state: RegistrationState?, message: String) {

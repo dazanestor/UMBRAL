@@ -22,18 +22,23 @@ class PairActivity : AppCompatActivity() {
         if (txt == null) { finish(); return@registerForActivityResult }
         val acc = Account.fromQr(txt)
         if (acc == null) { toast("QR no válido"); finish(); return@registerForActivityResult }
-        AccountStore.save(this, acc)
+        if (!AccountStore.save(this, acc)) { toast("No se pudo guardar el emparejamiento"); finish(); return@registerForActivityResult }
         thread {
             val api = ApiClient(acc)
             // 1) descarga el cert público (HTTPS con pinning) para anclar TLS en Linphone (antes del SIP)
-            runCatching { api.certPem() }.getOrNull()?.takeIf { it.contains("BEGIN CERTIFICATE") }
-                ?.let { Prefs.setCertPem(this, it) }
+            val pem = runCatching { api.certPem() }.getOrNull()?.takeIf { it.contains("BEGIN CERTIFICATE") }
+            if (pem == null) {
+                AccountStore.clear(this); Prefs.setCertPem(this, null)
+                runOnUiThread { toast("No se pudo contactar con la placa. Vuelve a escanear el QR") }
+                return@thread
+            }
+            Prefs.setCertPem(this, pem)
             // 2) (re)arranca el SIP con la NUEVA cuenta (el gestor se reconstruye al cambiar de cuenta)
             runCatching { SipService.start(this) }
             // 3) registra el token FCM esperando al token (fiable; el callback asíncrono se perdía)
             runCatching { val t = Tasks.await(FirebaseMessaging.getInstance().token); api.registerFcm(t) }
         }
-        toast("Emparejado: ${acc.ext}")
+        toast("Emparejando…")
         finish()
     }
 

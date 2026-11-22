@@ -16,16 +16,15 @@ object AccountStore {
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
     )
 
-    fun save(ctx: Context, a: Account) {
+    fun save(ctx: Context, a: Account): Boolean =
         runCatching {
             prefs(ctx).edit().apply {
                 putString("host", a.host); putString("domain", a.domain)
                 putInt("sipPort", a.sipPort); putInt("tlsPort", a.tlsPort); putInt("httpsPort", a.httpsPort)
                 putString("ext", a.ext); putString("secret", a.secret)
                 putString("token", a.token); putString("fp", a.fingerprintSha256)
-            }.apply()
-        }
-    }
+            }.commit()
+        }.getOrDefault(false)
 
     /** Devuelve la cuenta, o null si no hay o el almacén cifrado está corrupto (→ re-emparejar). */
     fun load(ctx: Context): Account? = runCatching {
