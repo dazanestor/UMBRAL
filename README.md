@@ -37,7 +37,7 @@ Este proyecto sustituye el sistema de fábrica por **Raspberry Pi OS Lite** + un
 
 ## Qué hace
 
-- **Pantalla táctil** 800×480 (rotada), con kiosco a pantalla completa (sin navegador visible), **arranque silencioso con logo** (no sale consola).
+- **Pantalla táctil** 800×480 (rotada), con kiosco a pantalla completa.
 - **Videoportero**: cuando llaman desde la calle **suena en la pantalla y en los móviles** a la vez; se contesta en cualquiera, se habla y **se abre la puerta**.
 - **Llamadas recientes** con **foto del visitante** (autocaptura al sonar; se guardan **30 días**).
 - **Cámara IP externa opcional** — el equipo **no incluye cámara**; hay que instalar una **cámara IP** (en la puerta/calle). Admite **MJPEG**, **snapshot JPEG por HTTP** o **RTSP** (transcodificado en la placa con ffmpeg). Añadir una cámara convierte el portero (solo audio) en un **videoportero completo**: la imagen aparece en Inicio y de fondo en la llamada (panel y app). Si no hay cámara, se muestra **el tiempo**.
@@ -59,7 +59,7 @@ Pantallas reales del panel (datos de ejemplo):
 | **Volúmenes** | **Pantalla** | **No molestar** |
 | ![Volúmenes](docs/screenshots/04-volumenes.png) | ![Pantalla](docs/screenshots/05-pantalla.png) | ![No molestar](docs/screenshots/06-no-molestar.png) |
 
-Con cámara configurada — panel (caras del stream de demo difuminadas):
+Con cámara configurada — panel:
 
 | Inicio con cámara | Llamada |
 |:---:|:---:|
