@@ -779,7 +779,7 @@ body.no-cam [data-cam] .camoff{display:none!important}
     var card=document.querySelector('.card.weather'); if(!card||!d)return; var cur=d.current||{}, dd=d.daily;
     var t=card.querySelector('.temp'); if(t)t.textContent=(cur.temperature_2m!=null?Math.round(cur.temperature_2m):'--')+'°';
     var cond=card.querySelector('.cond'); if(cond)cond.textContent=wtext(cur.weather_code);
-    var meta=card.querySelector('.meta'); if(meta&&dd)meta.innerHTML=((d.place||'').split(',')[0])+'<br>Máx '+Math.round(dd.temperature_2m_max[0])+'° · Mín '+Math.round(dd.temperature_2m_min[0])+'°'+(cur.relative_humidity_2m!=null?'<br>Humedad '+Math.round(cur.relative_humidity_2m)+'%':'');
+    var meta=card.querySelector('.meta'); if(meta&&dd)meta.innerHTML=String((d.place||'').split(',')[0]).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];})+'<br>Máx '+Math.round(dd.temperature_2m_max[0])+'° · Mín '+Math.round(dd.temperature_2m_min[0])+'°'+(cur.relative_humidity_2m!=null?'<br>Humedad '+Math.round(cur.relative_humidity_2m)+'%':'');
     var ic=card.querySelector('.ico'); if(ic&&cur.weather_code!=null){ var nic=icon(cur.weather_code).replace('viewBox="0 0 24 24"','class="ico" width="64" height="64" viewBox="0 0 24 24"'); ic.outerHTML=nic; }
   }
   function renderWx(d){
@@ -1342,7 +1342,7 @@ h2.title{font-size:26px}
   function fillPhone(){
     api('/api/mobiles').then(function(list){ var card=document.querySelector('#s-mobiles .card'); if(!card)return;
       var E=function(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});};
-      card.innerHTML=(list.length?list.map(function(m){ var nm=(m.name||'').replace(/'/g,''); var en=E(m.name||'Móvil');
+      card.innerHTML=(list.length?list.map(function(m){ var nm=E((m.name||'').replace(/[\x00-\x1f'\\]/g,'')); var en=E(m.name||'Móvil');
           var st = m.registered ? 'Conectado' : (m.push ? 'Listo (push)' : 'Sin configurar');
           var okdot = m.registered || m.push;
           return '<div class="row"><span class="av">'+E((m.name||'M')[0])+'</span><div><div class="nm">'+en+' · '+m.ext+'</div><div class="sub">'+st+'</div></div><span class="end"><span class="chip"><span class="dot'+(okdot?'':' off')+'"></span></span><button class="iconbtn" style="margin-left:8px" onclick="removeMobile(\''+m.ext+'\',\''+nm+'\')"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></span></div>'; }).join(''):'<div class="sub" style="padding:14px">Ningún móvil emparejado</div>'); });

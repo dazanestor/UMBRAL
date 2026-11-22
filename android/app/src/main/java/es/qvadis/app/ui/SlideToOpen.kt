@@ -34,6 +34,9 @@ class SlideToOpen @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? =
     private var downDX = 0f
     private var done = false
 
+    private val resetKnob = Runnable { done = false; knobX = pad(); invalidate() }
+    override fun onDetachedFromWindow() { removeCallbacks(resetKnob); super.onDetachedFromWindow() }
+
     private fun pad() = 4f * dens
     private fun knobSize() = height - 2 * pad()
     private fun maxX() = width - knobSize() - pad()
@@ -82,10 +85,12 @@ class SlideToOpen @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? =
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 parent?.requestDisallowInterceptTouchEvent(false)
-                if (dragging && knobX >= maxX() - 4 * dens) {
+                // Solo un ACTION_UP real abre: un CANCEL (gesto del sistema, barra de notificaciones,
+                // el padre que interviene) no es una orden del usuario y no debe abrir la puerta.
+                if (e.actionMasked == MotionEvent.ACTION_UP && dragging && knobX >= maxX() - 4 * dens) {
                     done = true; invalidate()
                     onOpen?.invoke()
-                    postDelayed({ done = false; knobX = pad(); invalidate() }, 2200)
+                    postDelayed(resetKnob, 2200)
                 } else {
                     knobX = pad(); invalidate()
                 }
