@@ -59,7 +59,10 @@ class MjpegView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = n
     private fun streamOnce(url: String, client: OkHttpClient): Boolean {
         var any = false
         client.newCall(Request.Builder().url(url).build()).execute().use { resp ->
-            if (!resp.isSuccessful) return false          // 401/403/5xx: no es un stream
+            if (!resp.isSuccessful) {                      // no es un stream
+                if (resp.code == 401 || resp.code == 403) running = false   // token inválido: reintentar no sirve
+                return false
+            }
             response = resp
             val input = BufferedInputStream(resp.body?.byteStream() ?: return false, 32 * 1024)
             val buf = ByteArrayOutputStream(64 * 1024)

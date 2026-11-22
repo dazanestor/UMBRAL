@@ -113,7 +113,13 @@ const REMOTE_PATHS = ['/api/health', '/api/door/open', '/api/camera/stream.mjpg'
   '/api/audio', '/api/audio/set', '/api/ringtone', '/api/ringtone/set', '/api/dnd', '/api/dnd/set'];
 let CERT_FP = '';
 try { CERT_FP = new crypto.X509Certificate(fs.readFileSync('/var/lib/qvadis/certs/qvadis.crt')).fingerprint256; } catch (e) {}
-function validToken(t) { return !!t && (CFG.mobiles || []).some((m) => m.token && m.token === t); }
+// Comparacion en tiempo constante (sobre el hash, asi no depende de la longitud ni del contenido)
+function tokEq(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || !a || !b) return false;
+  const ha = crypto.createHash('sha256').update(a).digest(), hb = crypto.createHash('sha256').update(b).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+function validToken(t) { return !!t && (CFG.mobiles || []).some((m) => tokEq(m.token, t)); }
 // Token del móvil: en el listener remoto SOLO por cabecera Authorization (no en la URL, que acaba
 // en logs/proxies/cachés). En el listener local (127.0.0.1, kiosco) se acepta también ?token=.
 function reqToken(u, req, remote) {
@@ -569,7 +575,7 @@ function pinCheck(p) {
 }
 function mobileByToken(u, req) {
   const t = reqToken(u, req, !!(req.socket && req.socket.encrypted));
-  return (CFG.mobiles || []).find((m) => m.token && m.token === t);
+  return (CFG.mobiles || []).find((m) => tokEq(m.token, t));
 }
 
 function handler(req, res, remote) {
@@ -980,7 +986,7 @@ function handler(req, res, remote) {
   if (u.pathname === '/api/mobiles/fcm') {
     // La app registra su token FCM; se autentica con su token de móvil
     const tok = reqToken(u, req, !!(req.socket && req.socket.encrypted));
-    const m = (CFG.mobiles || []).find((x) => x.token && x.token === tok);
+    const m = (CFG.mobiles || []).find((x) => tokEq(x.token, tok));
     if (!m) return J({ ok: false, err: 'auth' });
     m.fcm = (u.searchParams.get('fcm') || '').slice(0, 400);
     saveConfig();
@@ -991,7 +997,7 @@ function handler(req, res, remote) {
   let rel = u.pathname === '/' ? '/index.html' : u.pathname;
   rel = path.normalize(rel).replace(/^(\.\.(\/|\\|$))+/, '');
   const fp = path.join(ROOT, rel);
-  if (!fp.startsWith(ROOT)) { res.writeHead(403); return res.end('forbidden'); }
+  if (fp !== ROOT && !fp.startsWith(ROOT + path.sep)) { res.writeHead(403); return res.end('forbidden'); }
   fs.readFile(fp, (err, data) => {
     if (err) { res.writeHead(404); return res.end('404'); }
     res.writeHead(200, {

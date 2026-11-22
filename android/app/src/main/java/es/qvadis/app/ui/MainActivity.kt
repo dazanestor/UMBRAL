@@ -146,6 +146,9 @@ class MainActivity : AppCompatActivity() {
             val hasCam = runCatching { api.hasCamera() }.getOrDefault(false)
             runOnUiThread {
                 if (hasCam) {
+                    // La respuesta llega tarde: si ya se salió de primer plano (onPause paró la cámara),
+                    // no arrancar el stream (con la reconexión automática seguiría en segundo plano).
+                    if (!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) return@runOnUiThread
                     cameraPlaceholder.visibility = View.GONE
                     camera.visibility = View.VISIBLE
                     camera.start(api.cameraStreamUrl(), api.http)

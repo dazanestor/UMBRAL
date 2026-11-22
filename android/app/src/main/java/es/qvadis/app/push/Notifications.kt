@@ -29,6 +29,7 @@ object Notifications {
     const val CH_MISSED = "umbral_missed"
     const val ID_INCOMING = 1001
     const val ID_MISSED = 1002
+    private val missedSeq = java.util.concurrent.atomic.AtomicInteger(0)
 
     fun ensureChannels(ctx: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -73,6 +74,9 @@ object Notifications {
             .setOngoing(true)
             .setAutoCancel(true)
             .setFullScreenIntent(full, true)   // se muestra a pantalla completa, incluso bloqueado
+            // Si la llamada se atiende en el panel o se cancela antes de registrar el SIP, nadie la
+            // cancela: sin caducidad quedaba una notificación "ongoing" imposible de descartar.
+            .setTimeoutAfter(45_000)
             .build()
         ctx.getSystemService(NotificationManager::class.java).notify(ID_INCOMING, n)
     }
@@ -108,7 +112,8 @@ object Notifications {
                 b.setLargeIcon(bmp)
                 b.setStyle(NotificationCompat.BigPictureStyle().bigPicture(bmp).bigLargeIcon(null as android.graphics.Bitmap?))
             }
-            ctx.getSystemService(NotificationManager::class.java).notify(ID_MISSED, b.build())
+            // una notificación por llamada perdida (id distinto): con id fijo cada una borraba a la anterior
+            ctx.getSystemService(NotificationManager::class.java).notify(ID_MISSED + 100 + missedSeq.getAndIncrement() % 50, b.build())
         }
     }
 }

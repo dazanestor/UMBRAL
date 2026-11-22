@@ -55,17 +55,22 @@ class SipService : Service() {
         )
     }
 
-    private fun startForegroundCompat(): Boolean = runCatching {
+    private fun startForegroundCompat(): Boolean {
         val n = buildNotification()
-        when {
-            Build.VERSION.SDK_INT >= 34 ->
-                startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-            Build.VERSION.SDK_INT >= 29 ->
-                startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-            else ->
-                startForeground(NOTIF_ID, n)
-        }
-    }.isSuccess
+        val typed = runCatching {
+            when {
+                Build.VERSION.SDK_INT >= 34 ->
+                    startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+                Build.VERSION.SDK_INT >= 29 ->
+                    startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+                else -> startForeground(NOTIF_ID, n)
+            }
+        }.isSuccess
+        if (typed) return true
+        // Tras startForegroundService() hay que llamar a startForeground() aunque luego paremos:
+        // si no, Android lanza RemoteServiceException. Reintento sin tipo antes de rendirse.
+        return runCatching { startForeground(NOTIF_ID, n) }.isSuccess
+    }
 
     private fun buildNotification(): Notification {
         if (Build.VERSION.SDK_INT >= 26) {
