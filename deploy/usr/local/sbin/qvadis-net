@@ -35,6 +35,12 @@ valid_ip() {
   for n in "$a" "$b" "$c" "$d"; do [ "$n" -le 255 ] || return 1; done
 }
 
+ip2int() { local a b c d; IFS=. read -r a b c d <<<"$1"; echo $(( (10#$a<<24) + (10#$b<<16) + (10#$c<<8) + 10#$d )); }
+same_subnet() {  # $1=ip $2=gw $3=prefijo
+  local m=$(( (0xFFFFFFFF << (32-10#$3)) & 0xFFFFFFFF ))
+  [ $(( $(ip2int "$1") & m )) -eq $(( $(ip2int "$2") & m )) ]
+}
+
 write_dhcp() {
   cat > "$NET.new" <<EOF
 [Match]
@@ -70,6 +76,7 @@ case "${1:-}" in
     valid_ip "$IPADDR" || { echo "ERR bad-ip"; exit 2; }
     { echo "$PFX" | grep -qE '^[0-9]{1,2}$' && [ "$PFX" -ge 1 ] && [ "$PFX" -le 32 ]; } || { echo "ERR bad-prefix"; exit 2; }
     valid_ip "$GW" || { echo "ERR bad-gw"; exit 2; }
+    same_subnet "$IPADDR" "$GW" "$PFX" || { echo "ERR gw-fuera-de-subred"; exit 2; }
     [ -n "$DNS1" ] && { valid_ip "$DNS1" || { echo "ERR bad-dns"; exit 2; }; }
     [ -z "$DNS1" ] && DNS1="$GW"
     cp -f "$NET" "$NET.qvbak" 2>/dev/null

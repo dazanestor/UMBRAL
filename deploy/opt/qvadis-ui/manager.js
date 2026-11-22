@@ -855,11 +855,13 @@ function handler(req, res, remote) {
     if (!ssid || ssid.length > 32 || /[\x00-\x1f]/.test(ssid)) return J({ ok: false, err: 'ssid' });
     if (psk && (psk.length < 8 || psk.length > 63 || /[\x00-\x1f]/.test(psk))) return J({ ok: false, err: 'psk' });
     // El helper revierte solo si no asocia; timeout amplio para cubrir el reinicio del supplicant.
-    execFile('sudo', ['-n', '/usr/local/sbin/qvadis-wifi', 'connect', ssid, psk], { timeout: 60000 }, (e, o) => {
+    // La clave va por stdin ('-'), no por argv (visible en la lista de procesos)
+    const wc = execFile('sudo', ['-n', '/usr/local/sbin/qvadis-wifi', 'connect', ssid, psk ? '-' : ''], { timeout: 60000 }, (e, o) => {
       const out = String(o || '');
       if (!e && /^OK/.test(out)) { const m = out.match(/ip=(\S+)/); J({ ok: true, ssid, ip: m ? m[1] : '' }); }
       else J({ ok: false, err: 'connect', reverted: /reverted/.test(out) });
     });
+    try { wc.stdin.on('error', () => {}); wc.stdin.end(psk + '\n'); } catch (e) {}
     return;
   }
   if (u.pathname === '/api/net') {

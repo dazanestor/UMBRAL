@@ -9,6 +9,9 @@ WorkingDirectory=/opt/qvadis-ui
 Restart=on-failure
 RestartSec=2
 User=pi
+# Pase lo que pase al parar (SIGKILL o fallo), los reles de las puertas vuelven a reposo (BAJO).
+ExecStopPost=-/usr/bin/pigs w 24 0
+ExecStopPost=-/usr/bin/pigs w 26 0
 
 [Install]
 WantedBy=multi-user.target

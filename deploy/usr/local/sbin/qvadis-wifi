@@ -2,8 +2,9 @@
 # Helper WiFi del panel Qvadis. Lo ejecuta root vía sudo desde el manager (usuario pi).
 # Uso: qvadis-wifi status | connect <ssid> <psk>
 #
-# NOTA: no se expone "scan". En este hardware (rtl8xxxu, 8723bu) un escaneo con
-# wpa_cli desasocia la red oculta y no reconecta sin reiniciar el supplicant.
+# NOTA: "scan" desasocia la red oculta en este hardware (rtl8xxxu, 8723bu) y no reconecta
+# sin reiniciar el supplicant, por eso lo hace el propio helper (interrupcion breve y segura).
+# connect admite la clave como argumento o, con "-", por stdin (no queda en la lista de procesos).
 # connect reescribe la configuración y REINICIA wpa_supplicant@wlan0 (el método que
 # recupera de forma fiable). Si no logra asociarse en el tiempo límite, revierte a la
 # configuración anterior y vuelve a reiniciar el servicio, de modo que el equipo nunca
@@ -13,6 +14,15 @@ IF=wlan0
 CONF=/etc/wpa_supplicant/wpa_supplicant-wlan0.conf
 WCLI="/usr/sbin/wpa_cli -i $IF"
 SVC="wpa_supplicant@${IF}"
+
+# SSID de la red configurada: el helper e install.sh lo escriben en HEX (ssid=4a6f...), pero la
+# plantilla/ediciones a mano pueden llevarlo entre comillas. Devuelve el texto plano.
+conf_ssid() {
+  local l; l=$(grep -m1 -oP '^\s*ssid="\K[^"]*' "$CONF" 2>/dev/null)
+  if [ -n "$l" ]; then printf '%s' "$l"; return; fi
+  l=$(grep -m1 -oP '^\s*ssid=\K[0-9a-fA-F]+\s*$' "$CONF" 2>/dev/null | tr -d ' ')
+  [ -n "$l" ] && printf '%b' "$(printf '%s' "$l" | sed 's/../\\x&/g')"
+}
 
 wait_assoc() {  # $1=ssid esperado ; devuelve 0 si COMPLETED+ip
   local want="$1" st ip cur i
@@ -37,7 +47,7 @@ case "${1:-}" in
     sleep 6
     RES=$($WCLI scan_results 2>/dev/null)
     systemctl restart "$SVC" >/dev/null 2>&1
-    wait_assoc "$(grep -oP '^\s*ssid="\K[^"]+' "$CONF" | head -1)" >/dev/null 2>&1
+    wait_assoc "$(conf_ssid)" >/dev/null 2>&1
     echo "$RES" | awk -F'\t' 'NR>1 && $5!="" {
         ssid=$5; sig=$3+0;
         if(!(ssid in best) || sig>best[ssid]){best[ssid]=sig; sec[ssid]=($4 ~ /WPA|RSN/)?1:0}
@@ -45,6 +55,7 @@ case "${1:-}" in
     ;;
   connect)
     SSID="${2:-}"; PSK="${3:-}"
+    [ "$PSK" = "-" ] && IFS= read -r PSK
     [ -z "$SSID" ] && { echo "ERR no-ssid"; exit 2; }
     cp -f "$CONF" "$CONF.qvbak"
     {
@@ -75,7 +86,7 @@ case "${1:-}" in
     else
       mv -f "$CONF.qvbak" "$CONF"
       systemctl restart "$SVC" >/dev/null 2>&1
-      wait_assoc "$(grep -oP '^\s*ssid="\K[^"]+' "$CONF" | head -1)" >/dev/null 2>&1
+      wait_assoc "$(conf_ssid)" >/dev/null 2>&1
       echo "ERR connect-failed reverted"
       exit 1
     fi

@@ -46,7 +46,8 @@ ensure_cmdfiles(){ local P; P=$(pfx)
 set_tryboot_to(){ printf 'include config.txt\ncmdline=%s\n' "$(cmdfile_of "$1")" > "$BOOT/tryboot.txt"; }
 promote(){ ensure_cmdfiles; cp -f "$BOOT/$(cmdfile_of "$1")" "$BOOT/cmdline.txt"; set_tryboot_to "$(other_of "$1")"; sync; }
 health_ok(){ local i; for i in $(seq 1 "${1:-60}"); do
-    curl -fsS http://127.0.0.1:8080/api/health >/dev/null 2>&1 && systemctl is-active --quiet qvadis-kiosk && return 0; sleep 1; done; return 1; }
+    curl -fsS http://127.0.0.1:8080/api/health >/dev/null 2>&1 && systemctl is-active --quiet qvadis-kiosk \
+      && systemctl is-active --quiet asterisk && systemctl is-active --quiet pigpiod && return 0; sleep 1; done; return 1; }
 
 # Tras un os-upgrade (kernel nuevo al p1 compartido), copia modulos+firmware al OTRO slot
 # para que tambien pueda arrancar con el kernel nuevo (mantiene el rollback valido).
@@ -65,22 +66,44 @@ fetch_src(){ local dest="$1"
   if [ -n "$SRC_DIR" ] && [ -d "$SRC_DIR" ]; then cp -a "$SRC_DIR"/. "$dest"/ && return 0; return 1; fi
   [ -n "$REPO" ] || { log "sin REPO ni SRC_DIR"; return 1; }
   log "descargando $REPO@$BRANCH"
-  curl -fsSL -A "qvadis-ota" "https://codeload.github.com/$REPO/tar.gz/refs/heads/$BRANCH" -o /tmp/qvadis-ota.tgz || return 1
-  tar -xzf /tmp/qvadis-ota.tgz -C "$dest" --strip-components=1; }
+  local tgz; tgz=$(mktemp /tmp/qvadis-ota.XXXXXX) || return 1
+  curl -fsSL -A "qvadis-ota" "https://codeload.github.com/$REPO/tar.gz/refs/heads/$BRANCH" -o "$tgz" || { rm -f "$tgz"; return 1; }
+  tar -xzf "$tgz" -C "$dest" --strip-components=1; local rc=$?; rm -f "$tgz"; return $rc; }
 remote_version(){ if [ -n "$SRC_DIR" ] && [ -f "$SRC_DIR/VERSION" ]; then cat "$SRC_DIR/VERSION"; return; fi
   [ -n "$REPO" ] || return 1; curl -fsSL -A "qvadis-ota" "https://raw.githubusercontent.com/$REPO/$BRANCH/VERSION" 2>/dev/null; }
 
 # Prepara el slot inactivo: deja montado en $MNT un clon del activo con el fstab corregido.
-prepare_inactive(){ INACT=$(inactive_puuid); DEV=$(dev_of "$INACT")
+prepare_inactive(){ local rc; INACT=$(inactive_puuid); DEV=$(dev_of "$INACT")
   log "preparando slot $INACT ($DEV)"; mkdir -p "$MNT"; mountpoint -q "$MNT" && umount "$MNT"
   mount "$DEV" "$MNT" || { log "mount $DEV fallo"; return 1; }
   log "clonando $(cur_puuid) -> $INACT"
   rsync -aHAXx --delete "${RSX[@]}" / "$MNT/" 2>>"$LOG"
+  rc=$?   # 24 = ficheros desaparecidos durante la copia (normal en un sistema en marcha)
+  if [ "$rc" != 0 ] && [ "$rc" != 24 ]; then log "clon FALLO (rsync rc=$rc); abortando sin tocar el arranque"; umount "$MNT" 2>/dev/null; return 1; fi
   sed -i "/[[:space:]]\/[[:space:]].*ext4/ s/PARTUUID=[0-9a-f-]*/PARTUUID=$INACT/" "$MNT/etc/fstab"; }
 
-apply_overlay(){ local src="$1" d
-  for d in $OVERLAY_DIRS; do [ -d "$src/deploy/$d" ] && rsync -aHAX "${OVX[@]}" "$src/deploy/$d/" "$MNT/$d/" 2>>"$LOG"; done
-  chmod 0755 "$MNT"/usr/local/sbin/qvadis-* 2>>"$LOG" || true; }   # el tarball puede traer modos sin exec
+# pjsip.conf no se superpone (lleva la clave SIP real): se toma el del repo y se le inyecta la clave actual.
+merge_pjsip(){ local src="$1" new cur pw; new="$src/deploy/etc/asterisk/pjsip.conf"; cur="$MNT/etc/asterisk/pjsip.conf"
+  [ -f "$new" ] && [ -f "$cur" ] || return 0
+  grep -q '^; Qvadis - PJSIP' "$cur" || return 0
+  if [ "$(grep -c '^password=' "$new")" != 1 ] || [ "$(grep -c '^password=' "$cur")" != 1 ]; then log "pjsip.conf: no se fusiona (se esperaba exactamente 1 password)"; return 0; fi
+  pw=$(grep '^password=' "$cur")
+  PW="$pw" awk '/^password=/{print ENVIRON["PW"]; next}{print}' "$new" > "$cur.new" || { rm -f "$cur.new"; return 0; }
+  if cmp -s "$cur.new" "$cur"; then rm -f "$cur.new"; return 0; fi
+  cp -p "$cur" "$cur.qvbak"; chown --reference="$cur" "$cur.new"; chmod --reference="$cur" "$cur.new"; mv -f "$cur.new" "$cur"; log "pjsip.conf actualizado (clave conservada)"; }
+
+apply_overlay(){ local src="$1" d rc
+  for d in $OVERLAY_DIRS; do [ -d "$src/deploy/$d" ] || continue
+    rsync -aHAX "${OVX[@]}" "$src/deploy/$d/" "$MNT/$d/" 2>>"$LOG"; rc=$?
+    if [ "$rc" != 0 ] && [ "$rc" != 24 ]; then log "overlay $d FALLO (rsync rc=$rc)"; return 1; fi
+  done
+  # El arbol de la app es 100% del repo: se borra lo que ya no existe en el (ficheros obsoletos)
+  if [ -d "$src/deploy/opt/qvadis-ui" ]; then rsync -aHAX --delete "$src/deploy/opt/qvadis-ui/" "$MNT/opt/qvadis-ui/" 2>>"$LOG" || { log "overlay opt/qvadis-ui FALLO"; return 1; }; fi
+  # pjsip.conf lleva ajustes locales (NAT, certificados, clave): por defecto NO se toca. Fusionarlo es opt-in.
+  if [ "${MERGE_PJSIP:-0}" = 1 ]; then merge_pjsip "$src"; fi
+  chmod 0755 "$MNT"/usr/local/sbin/qvadis-* 2>>"$LOG" || true     # el tarball puede traer modos sin exec
+  [ -f "$MNT/etc/sudoers.d/qvadis" ] && chmod 0440 "$MNT/etc/sudoers.d/qvadis"   # sudoers: 0440 (el tarball trae 0644)
+  return 0; }
 
 finalize(){ local ver="$1" kind="$2"
   echo "$ver" > "$MNT$VERSION_FILE"; sync; umount "$MNT"
@@ -108,7 +131,8 @@ cmd_update(){ ensure_cmdfiles; local src ver; src=$(mktemp -d)
   fetch_src "$src" || { log "fetch fallo"; rm -rf "$src"; return 1; }
   ver=$(cat "$src/VERSION" 2>/dev/null || date +%Y%m%d%H%M%S)
   log "=== update app v$ver ==="; prepare_inactive || { rm -rf "$src"; return 1; }
-  apply_overlay "$src"; rm -rf "$src"; finalize "$ver" app; }
+  apply_overlay "$src" || { log "overlay fallo; abortando"; umount "$MNT" 2>/dev/null; rm -rf "$src"; return 1; }
+  rm -rf "$src"; finalize "$ver" app; }
 
 cmd_os_upgrade(){ ensure_cmdfiles; local src ver; src=$(mktemp -d); fetch_src "$src" 2>/dev/null || true
   ver="os-$(date +%Y%m%d%H%M%S)"
@@ -117,7 +141,7 @@ cmd_os_upgrade(){ ensure_cmdfiles; local src ver; src=$(mktemp -d); fetch_src "$
   prepare_inactive || { rm -rf "$src"; return 1; }
   log "apt full-upgrade en el slot inactivo (chroot)"
   if ! chroot_apt "$MNT"; then log "apt fallo; restaurando p1 y abortando"; [ -f "$P1BAK" ] && tar -xzf "$P1BAK" -C "$BOOT" 2>>"$LOG" && rm -f "$P1BAK"; sync; umount "$MNT" 2>/dev/null; rm -rf "$src"; return 1; fi
-  [ -d "$src/deploy" ] && apply_overlay "$src"
+  if [ -d "$src/deploy" ]; then apply_overlay "$src" || { log "overlay fallo; restaurando p1 y abortando"; [ -f "$P1BAK" ] && tar -xzf "$P1BAK" -C "$BOOT" 2>>"$LOG" && rm -f "$P1BAK"; sync; umount "$MNT" 2>/dev/null; rm -rf "$src"; return 1; }; fi
   rm -rf "$src"; finalize "$ver" os; }
 
 cmd_confirm(){ [ -f "$PENDING" ] || exit 0
@@ -141,6 +165,9 @@ cmd_confirm(){ [ -f "$PENDING" ] || exit 0
 
 cmd_rollback(){ local other; other=$(inactive_puuid); log "rollback manual -> $other"; promote "$other"; sync; sleep 1; reboot; }
 
+# Una sola operacion a la vez (doble clic en la UI, confirm + update, etc.)
+case "${1:-}" in update|os-upgrade|rollback|confirm)
+  exec 9>/run/qvadis-ota.lock; flock -n 9 || { echo "ERR busy: otra operacion OTA en curso"; exit 3; };; esac
 case "${1:-}" in
   status) cmd_status;; check) cmd_check;; update) cmd_update;;
   os-upgrade) cmd_os_upgrade;; confirm) cmd_confirm;; rollback) cmd_rollback;;
