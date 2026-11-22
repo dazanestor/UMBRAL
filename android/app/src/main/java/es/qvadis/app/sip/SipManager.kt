@@ -1,8 +1,11 @@
 package es.qvadis.app.sip
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.SystemClock
 import es.qvadis.app.model.Account
 import es.qvadis.app.store.Prefs
 import org.linphone.core.Account as LinAccount
@@ -21,8 +24,13 @@ import java.io.File
  *
  * TLS: la placa usa cert autofirmado. Si tenemos su PEM (descargado al emparejar por HTTPS
  * con pinning), lo anclamos como CA raíz y validamos de verdad, sin verificar el CN
- * (el CN del cert es "qvadis-videoportero", no el dominio). Sin PEM, caemos a no verificar
- * el cert (la media sigue cifrada por SRTP).
+ * (el CN del cert es "qvadis-videoportero", no el dominio). Sin PEM NO se desactiva la
+ * verificación: el registro falla y hay que re-emparejar.
+ *
+ * Reconexión: al cambiar de red (Wi-Fi/datos/VPN) el socket TLS viejo puede quedar muerto sin
+ * que nadie lo avise y el registro se queda en "Refreshing" para siempre. Por eso hay un callback
+ * de red y un vigilante del registro que, en esos casos, vuelven a resolver el servidor y fuerzan
+ * una conexión nueva.
  *
  * Todo el trabajo del Core corre en su propio hilo con iterate() manual.
  * Ajusta nombres/firmas a la versión del SDK si hiciera falta.
@@ -34,6 +42,14 @@ class SipManager private constructor(private val appCtx: Context, private val ac
     private val h = Handler(worker.looper)
     private lateinit var core: Core
     private var built = false
+
+    // --- reconexión ---
+    @Volatile private var regState: RegistrationState? = null
+    @Volatile private var regSince = 0L
+    @Volatile private var recovering = false
+    @Volatile private var lastHost: String? = null
+    private var netCb: ConnectivityManager.NetworkCallback? = null
+    private var firstNetEvent = true
 
     /** La UI (CallActivity) la usa para cerrarse al terminar la llamada. */
     @Volatile var onCallEnded: (() -> Unit)? = null
@@ -104,9 +120,8 @@ class SipManager private constructor(private val appCtx: Context, private val ac
         // (lista de servidores vacía + EPERM) y falla con "io error". Resolvemos el dominio con
         // el resolutor del SISTEMA (que sí funciona, p.ej. por VPN) y le damos a Linphone la IP;
         // el TLS sigue validando por CA anclada (verifyServerCn=false, así que la IP no rompe nada).
-        val host = runCatching {
-            java.net.InetAddress.getByName(acc.sipDomain()).hostAddress
-        }.getOrNull() ?: acc.sipDomain()
+        val host = resolveHost()
+        lastHost = host
         android.util.Log.i("QvadisSip", "server host resuelto")
 
         val params = core.createAccountParams()
@@ -115,7 +130,7 @@ class SipManager private constructor(private val appCtx: Context, private val ac
         server?.transport = TransportType.Tls
         params.serverAddress = server
         params.isRegisterEnabled = true
-        runCatching { params.expires = 3600 }
+        runCatching { params.expires = 600 }   // corto: detecta antes un registro muerto tras cambiar de red
         val account: LinAccount = core.createAccount(params)
         core.addAccount(account)
         core.defaultAccount = account
@@ -124,6 +139,7 @@ class SipManager private constructor(private val appCtx: Context, private val ac
         core.addListener(object : CoreListenerStub() {
             override fun onAccountRegistrationStateChanged(c: Core, a: LinAccount, state: RegistrationState?, message: String) {
                 android.util.Log.i("QvadisSip", "registro: state=$state msg=$message")
+                regState = state; regSince = SystemClock.elapsedRealtime()
                 when (state) {
                     RegistrationState.Ok -> onRegistered?.invoke(true)
                     RegistrationState.Failed -> onRegistered?.invoke(false)
@@ -153,6 +169,74 @@ class SipManager private constructor(private val appCtx: Context, private val ac
 
         core.start()
         h.post(iterate)
+        regState = null; regSince = SystemClock.elapsedRealtime()
+        watchNetwork()
+        h.postDelayed(watchdog, 30_000)
+    }
+
+    /** Resuelve con el resolutor del SISTEMA (el de belle-sip falla bajo VPN). */
+    private fun resolveHost(): String =
+        runCatching { java.net.InetAddress.getByName(acc.sipDomain()).hostAddress }.getOrNull() ?: acc.sipDomain()
+
+    /**
+     * Fuerza una conexión nueva: vuelve a resolver el servidor (puede haber cambiado de IP o ser
+     * otra según la red) y alterna la "alcanzabilidad" de red del Core, que cierra los sockets
+     * viejos y re-registra. La resolución va fuera del hilo del Core (DNS bloqueante).
+     */
+    private fun reconnect(why: String) {
+        if (!built || recovering) return
+        recovering = true
+        android.util.Log.i("QvadisSip", "reconectando: $why")
+        Thread {
+            val host = resolveHost()
+            h.post {
+                if (!built) { recovering = false; return@post }
+                runCatching {
+                    val a = core.defaultAccount
+                    if (a != null && host != lastHost) {
+                        val p = a.params.clone()
+                        p.serverAddress = factory.createAddress("sip:$host:${acc.tlsPort};transport=tls")
+                            ?.apply { transport = TransportType.Tls }
+                        a.params = p
+                        lastHost = host
+                    }
+                    core.isNetworkReachable = false
+                }
+                h.postDelayed({
+                    runCatching { core.isNetworkReachable = true; core.refreshRegisters() }
+                    regSince = SystemClock.elapsedRealtime()
+                    recovering = false
+                }, 1000)
+            }
+        }.start()
+    }
+
+    private val netChanged = Runnable { reconnect("cambio de red") }
+
+    /** Cambio de red por defecto (Wi-Fi <-> datos <-> VPN): reconecta con un pequeño antirrebote. */
+    private fun watchNetwork() {
+        val cm = appCtx.getSystemService(ConnectivityManager::class.java) ?: return
+        val cb = object : ConnectivityManager.NetworkCallback() {
+            private fun changed() {
+                if (firstNetEvent) { firstNetEvent = false; return }   // el aviso inicial no es un cambio
+                h.removeCallbacks(netChanged); h.postDelayed(netChanged, 1500)
+            }
+            override fun onAvailable(network: Network) = changed()
+            override fun onLost(network: Network) = changed()
+        }
+        runCatching { cm.registerDefaultNetworkCallback(cb, h); netCb = cb }
+    }
+
+    /** Si el registro no está en Ok durante más de 60 s (p. ej. atascado en Refreshing), reconecta. */
+    private val watchdog = object : Runnable {
+        override fun run() {
+            if (!built) return
+            if (regState != RegistrationState.Ok && SystemClock.elapsedRealtime() - regSince > 60_000) {
+                reconnect("registro en $regState")
+                regSince = SystemClock.elapsedRealtime()
+            }
+            h.postDelayed(this, 30_000)
+        }
     }
 
     /** Atiende (audio-only) + manos libres. Si el INVITE aún no ha llegado, se acepta al llegar. */
@@ -226,6 +310,9 @@ class SipManager private constructor(private val appCtx: Context, private val ac
 
     fun stop() = h.post {
         onCallEnded = null; onCallIncoming = null; onCallConnected = null; onRegistered = null
+        h.removeCallbacks(watchdog); h.removeCallbacks(netChanged)
+        netCb?.let { cb -> runCatching { appCtx.getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(cb) } }
+        netCb = null
         runCatching { if (built) core.stop() }
         runCatching { worker.quitSafely() }
     }
