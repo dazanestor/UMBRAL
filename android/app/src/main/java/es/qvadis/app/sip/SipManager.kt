@@ -3,6 +3,8 @@ package es.qvadis.app.sip
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.SystemClock
@@ -49,7 +51,9 @@ class SipManager private constructor(private val appCtx: Context, private val ac
     @Volatile private var recovering = false
     @Volatile private var lastHost: String? = null
     private var netCb: ConnectivityManager.NetworkCallback? = null
-    private var firstNetEvent = true
+    private var underCb: ConnectivityManager.NetworkCallback? = null
+    private var ignoreNetUntil = 0L
+    @Volatile private var lastProbe = 0L
 
     /** La UI (CallActivity) la usa para cerrarse al terminar la llamada. */
     @Volatile var onCallEnded: (() -> Unit)? = null
@@ -169,7 +173,7 @@ class SipManager private constructor(private val appCtx: Context, private val ac
 
         core.start()
         h.post(iterate)
-        regState = null; regSince = SystemClock.elapsedRealtime()
+        regState = null; regSince = SystemClock.elapsedRealtime(); lastProbe = regSince
         watchNetwork()
         h.postDelayed(watchdog, 30_000)
     }
@@ -213,27 +217,52 @@ class SipManager private constructor(private val appCtx: Context, private val ac
 
     private val netChanged = Runnable { reconnect("cambio de red") }
 
-    /** Cambio de red por defecto (Wi-Fi <-> datos <-> VPN): reconecta con un pequeño antirrebote. */
+    /**
+     * Cambios de red. Dos callbacks:
+     *  - red por defecto (Wi-Fi <-> datos, o la VPN al conectar/desconectar);
+     *  - redes SUBYACENTES sin VPN: con una VPN activa la red por defecto es siempre la misma y
+     *    el cambio real (Wi-Fi a datos, nueva IP de salida) solo se ve en estas.
+     * Antirrebote de 1,5 s; los avisos iniciales al registrarlos no cuentan como cambio.
+     */
     private fun watchNetwork() {
         val cm = appCtx.getSystemService(ConnectivityManager::class.java) ?: return
-        val cb = object : ConnectivityManager.NetworkCallback() {
-            private fun changed() {
-                if (firstNetEvent) { firstNetEvent = false; return }   // el aviso inicial no es un cambio
-                h.removeCallbacks(netChanged); h.postDelayed(netChanged, 1500)
-            }
+        ignoreNetUntil = SystemClock.elapsedRealtime() + 3000
+        fun changed() {
+            if (SystemClock.elapsedRealtime() < ignoreNetUntil) return
+            h.removeCallbacks(netChanged); h.postDelayed(netChanged, 1500)
+        }
+        val def = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) = changed()
             override fun onLost(network: Network) = changed()
         }
-        runCatching { cm.registerDefaultNetworkCallback(cb, h); netCb = cb }
+        val under = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) = changed()
+            override fun onLost(network: Network) = changed()
+            override fun onLinkPropertiesChanged(network: Network, lp: android.net.LinkProperties) = changed()
+        }
+        runCatching { cm.registerDefaultNetworkCallback(def, h); netCb = def }
+        runCatching {
+            val req = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                .build()
+            cm.registerNetworkCallback(req, under, h); underCb = under
+        }
     }
 
     /** Si el registro no está en Ok durante más de 60 s (p. ej. atascado en Refreshing), reconecta. */
     private val watchdog = object : Runnable {
         override fun run() {
             if (!built) return
-            if (regState != RegistrationState.Ok && SystemClock.elapsedRealtime() - regSince > 60_000) {
+            val now = SystemClock.elapsedRealtime()
+            if (regState != RegistrationState.Ok && now - regSince > 60_000) {
                 reconnect("registro en $regState")
-                regSince = SystemClock.elapsedRealtime()
+                regSince = now
+            } else if (regState == RegistrationState.Ok && now - lastProbe > 180_000) {
+                // Sondeo: un REGISTER cada 3 min. Si el socket está muerto no habrá respuesta, el
+                // estado saldrá de Ok y la rama de arriba reconectará (detecta en ~4 min, no ~11).
+                lastProbe = now
+                runCatching { core.refreshRegisters() }
             }
             h.postDelayed(this, 30_000)
         }
@@ -313,6 +342,8 @@ class SipManager private constructor(private val appCtx: Context, private val ac
         h.removeCallbacks(watchdog); h.removeCallbacks(netChanged)
         netCb?.let { cb -> runCatching { appCtx.getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(cb) } }
         netCb = null
+        underCb?.let { cb -> runCatching { appCtx.getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(cb) } }
+        underCb = null
         runCatching { if (built) core.stop() }
         runCatching { worker.quitSafely() }
     }
