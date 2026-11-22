@@ -80,7 +80,13 @@ grep -q '^; Qvadis - PJSIP' /etc/asterisk/pjsip.conf 2>/dev/null || install -D -
 install -m0644 "$HERE/VERSION" /etc/qvadis-version 2>/dev/null || true
 # Grupos de pi: asterisk (socket de control de Asterisk), audio/video/render/input (kiosco, audio), gpio (pigpio), netdev (wpa_supplicant)
 for g in asterisk audio video render input gpio netdev; do getent group "$g" >/dev/null 2>&1 && usermod -aG "$g" pi; done
-chmod 0440 /etc/sudoers.d/qvadis 2>/dev/null || true
+if [ -f /etc/sudoers.d/qvadis ]; then
+  chmod 0440 /etc/sudoers.d/qvadis
+  # un sudoers invalido deja el equipo sin sudo: si no valida, se quita
+  if command -v visudo >/dev/null 2>&1 && ! visudo -cf /etc/sudoers.d/qvadis >/dev/null 2>&1; then
+    err "sudoers.d/qvadis no es valido: lo quito para no romper sudo"; rm -f /etc/sudoers.d/qvadis
+  fi
+fi
 chmod 0755 /usr/local/sbin/qvadis-* 2>/dev/null || true
 mkdir -p /var/lib/qvadis/snaps
 # Nombre del equipo (en la unidad de pruebas: qvadis-rpi). Cambialo con QV_HOSTNAME si tienes varias pantallas.
@@ -146,6 +152,8 @@ if [ -n "$WIFI_SSID" ] && [ -n "$WIFI_PASS" ]; then
 fi
 if [ -n "$SIP_PASS" ] && ! [[ "$SIP_PASS" =~ ^[A-Za-z0-9._~+-]{8,64}$ ]]; then
   err "la clave SIP debe tener 8-64 caracteres entre letras, numeros y . _ ~ + - (otros romperian pjsip.conf/baresip)"; exit 1; fi
+[[ "$TZ" =~ ^[A-Za-z0-9_+./-]+$ ]] && [[ "$TZ" != *..* ]] && [ -f "/usr/share/zoneinfo/$TZ" ] \
+  || { err "zona horaria no valida: '$TZ' (p. ej. Europe/Madrid)"; exit 1; }
 if [ "$PIN_KEEP" != 1 ] && ! [[ "${PANEL_PIN:-}" =~ ^[0-9]{4,6}$ ]]; then err "el PIN del panel debe tener 4-6 digitos"; exit 1; fi
 # Clave SIP vacia: NUNCA dejar la de plantilla (CHANGE_ME es publica y el UDP 5060 esta abierto en la LAN): se genera una al azar.
 # No hace falta recordarla: panel y baresip la leen de los ficheros y los moviles se emparejan por QR.
@@ -155,12 +163,21 @@ fi
 
 WPA=/etc/wpa_supplicant/wpa_supplicant-wlan0.conf
 if [ -n "$WIFI_SSID" ]; then
-  PMK="$(wpa_passphrase "$WIFI_SSID" "$WIFI_PASS" 2>/dev/null | grep -oP '^\s*psk=\K[0-9a-f]{64}' || true)"
+  PMK=""
+  [ -z "$WIFI_PASS" ] || PMK="$(wpa_passphrase "$WIFI_SSID" "$WIFI_PASS" 2>/dev/null | grep -oP '^\s*psk=\K[0-9a-f]{64}' || true)"
+  if [ -n "$WIFI_PASS" ] && [ -z "$PMK" ]; then
+    case "$WIFI_PASS" in *\"*|*\\*) err "no pude calcular el hash de la clave WiFi y contiene \" o \\ (se escribiria roto en wpa_supplicant)"; exit 1;; esac
+  fi
   {
     echo "ctrl_interface=DIR=/run/wpa_supplicant GROUP=netdev"; echo "update_config=1"; echo "country=ES"
-    echo "network={"; echo "	ssid=$(printf '%s' "$WIFI_SSID" | od -An -tx1 | tr -d ' \n')"; echo "	scan_ssid=1"; echo "	key_mgmt=WPA-PSK"
-    [ -n "$PMK" ] && echo "	psk=$PMK" || echo "	psk=\"$WIFI_PASS\""
-    echo "	ieee80211w=0"; echo "}"
+    echo "network={"; echo "	ssid=$(printf '%s' "$WIFI_SSID" | od -An -tx1 | tr -d ' \n')"; echo "	scan_ssid=1"
+    if [ -z "$WIFI_PASS" ]; then echo "	key_mgmt=NONE"       # red abierta: con WPA-PSK y psk vacio la configuracion seria invalida
+    else
+      echo "	key_mgmt=WPA-PSK"
+      if [ -n "$PMK" ]; then echo "	psk=$PMK"; else echo "	psk=\"$WIFI_PASS\""; fi
+      echo "	ieee80211w=0"
+    fi
+    echo "}"
   } > "$WPA"; chmod 600 "$WPA"
 fi
 if [ -n "$SIP_PASS" ]; then
@@ -208,7 +225,7 @@ chmod 644 /var/lib/qvadis/certs/qvadis.crt; chmod 600 /var/lib/qvadis/certs/qvad
 # que corre como 'pi'. Linger = el Pulse de pi arranca al boot aunque nadie inicie sesion.
 say "configurando PulseAudio (pi, persistente)..."
 loginctl enable-linger pi 2>/dev/null || true
-sudo -u pi XDG_RUNTIME_DIR=/run/user/1000 systemctl --user enable pulseaudio.socket pulseaudio.service 2>/dev/null || true
+sudo -u pi XDG_RUNTIME_DIR=/run/user/$(id -u pi) systemctl --user enable pulseaudio.socket pulseaudio.service 2>/dev/null || true
 chmod 0755 /var/lib/qvadis/audio-aec-up.sh /opt/qvadis-ui/intercom-on.sh /opt/qvadis-ui/intercom-off.sh /opt/qvadis-ui/audio-on.sh 2>/dev/null || true
 
 # ---------- 5) servicios ----------
@@ -233,6 +250,9 @@ if [ "$DO_AB" = 1 ]; then
   # slot inactivo = la "otra" particion de 3,5G (02 si corremos en 03, y viceversa)
   case "$ROOTPUUID" in *-03) BSUF=02;; *-02) BSUF=03;; *) BSUF="";; esac
   BDEV=""; [ "$BSUF" = 02 ] && BDEV=/dev/mmcblk0p2; [ "$BSUF" = 03 ] && BDEV=/dev/mmcblk0p3
+  if [ -n "$BDEV" ] && [ "$(findmnt -no SOURCE / 2>/dev/null || true)" = "$BDEV" ]; then
+    err "$BDEV es la raiz en uso (el PARTUUID no corresponde al numero de particion): A/B omitido para no formatearla"; BDEV=""
+  fi
   if [ -n "$BDEV" ] && [ -b "$BDEV" ]; then
     if [ -f /boot/firmware/cmdline_a.txt ] && [ -f /boot/firmware/cmdline_b.txt ] && [ "${FORCE_AB:-0}" != 1 ]; then
       say "A/B ya configurado: omitido (FORCE_AB=1 lo rehace y BORRA el slot B)"

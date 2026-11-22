@@ -36,6 +36,10 @@ wait_assoc() {  # $1=ssid esperado ; devuelve 0 si COMPLETED+ip
   return 1
 }
 
+# scan y connect reinician el supplicant: una sola a la vez (un doble toque en la UI pisaria el .qvbak
+# con la configuracion nueva y, si falla, el revert dejaria la mala)
+case "${1:-}" in scan|connect) exec 9>/run/qvadis-wifi.lock; flock -n 9 || { echo "ERR busy"; exit 3; };; esac
+
 case "${1:-}" in
   status)
     $WCLI status 2>/dev/null | grep -E '^(wpa_state|ssid|ip_address|bssid)='
@@ -57,6 +61,13 @@ case "${1:-}" in
     SSID="${2:-}"; PSK="${3:-}"
     [ "$PSK" = "-" ] && IFS= read -r PSK
     [ -z "$SSID" ] && { echo "ERR no-ssid"; exit 2; }
+    # Validar ANTES de tocar nada: un valor invalido reiniciaria el supplicant con una config rota
+    case "$SSID" in *[[:cntrl:]]*) echo "ERR bad-ssid"; exit 2;; esac
+    [ "$(printf '%s' "$SSID" | LC_ALL=C wc -c)" -le 32 ] || { echo "ERR bad-ssid"; exit 2; }
+    if [ -n "$PSK" ]; then
+      case "$PSK" in *[[:cntrl:]]*) echo "ERR bad-psk"; exit 2;; esac
+      n=$(printf '%s' "$PSK" | LC_ALL=C wc -c); { [ "$n" -ge 8 ] && [ "$n" -le 63 ]; } || { echo "ERR bad-psk"; exit 2; }
+    fi
     cp -f "$CONF" "$CONF.qvbak"
     {
       echo "ctrl_interface=DIR=/run/wpa_supplicant GROUP=netdev"

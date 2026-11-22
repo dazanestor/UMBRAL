@@ -54,6 +54,9 @@ RouteMetric=100
 EOF
 }
 
+# dhcp y static reconfiguran la red con verificacion y revert: una sola a la vez
+case "${1:-}" in dhcp|static) exec 9>/run/qvadis-net.lock; flock -n 9 || { echo "ERR busy"; exit 3; };; esac
+
 case "${1:-}" in
   show)
     mode=dhcp; grep -q '^Address=' "$NET" 2>/dev/null && mode=static

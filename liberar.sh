@@ -205,11 +205,19 @@ EOF
 ln -sf /etc/systemd/system/qvadis-rfkill-unblock.service "$W/multi-user.target.wants/qvadis-rfkill-unblock.service"
 if [ -n "$WIFI_SSID" ]; then
   mkdir -p "$D/etc/wpa_supplicant"
+  # La clave se guarda como hash (PSK de 64 hex) calculado con el wpa_passphrase de la propia rootfs
+  # (armhf, corre en chroot). Si no se puede, va en claro, pero un " o \ la romperia: se rechaza.
+  PSKLINE="psk=\"$WIFI_PASS\""
+  if [ -n "$WIFI_PASS" ]; then
+    PMKHEX="$(chroot "$D" /usr/bin/wpa_passphrase "$WIFI_SSID" "$WIFI_PASS" 2>/dev/null | sed -n 's/^[[:space:]]*psk=\([0-9a-f]\{64\}\)$/\1/p' | head -1 || true)"
+    if [ -n "$PMKHEX" ]; then PSKLINE="psk=$PMKHEX"
+    else case "$WIFI_PASS" in *\"*|*\\*) die "no pude calcular el hash de la clave WiFi y contiene \" o \\: se escribiria rota y la placa quedaria sin red. NO he tocado el arranque.";; esac; fi
+  fi
   SSIDHEX="$(printf '%s' "$WIFI_SSID" | od -An -tx1 | tr -d ' \n')"
   {
     echo "ctrl_interface=DIR=/run/wpa_supplicant GROUP=netdev"; echo "update_config=1"; echo "country=ES"
     echo "network={"; echo "	ssid=$SSIDHEX"; echo "	scan_ssid=1"
-    if [ -n "$WIFI_PASS" ]; then echo "	key_mgmt=WPA-PSK"; echo "	psk=\"$WIFI_PASS\""; echo "	ieee80211w=0"; else echo "	key_mgmt=NONE"; fi
+    if [ -n "$WIFI_PASS" ]; then echo "	key_mgmt=WPA-PSK"; echo "	$PSKLINE"; echo "	ieee80211w=0"; else echo "	key_mgmt=NONE"; fi
     echo "}"
   } > "$D/etc/wpa_supplicant/wpa_supplicant-wlan0.conf"
   chmod 600 "$D/etc/wpa_supplicant/wpa_supplicant-wlan0.conf"
