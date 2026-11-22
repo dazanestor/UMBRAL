@@ -32,7 +32,8 @@ verify() {  # 0 = hay puerta de enlace y responde a ping
 valid_ip() {
   echo "$1" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$' || return 1
   local a b c d; IFS=. read -r a b c d <<<"$1"
-  for n in "$a" "$b" "$c" "$d"; do [ "$n" -le 255 ] || return 1; done
+  # sin ceros a la izquierda: "089" es ambiguo (octal para inet_aton/networkd) y rompia la configuracion
+  for n in "$a" "$b" "$c" "$d"; do [[ "$n" =~ ^(0|[1-9][0-9]{0,2})$ ]] && [ "$n" -le 255 ] || return 1; done
 }
 
 ip2int() { local a b c d; IFS=. read -r a b c d <<<"$1"; echo $(( (10#$a<<24) + (10#$b<<16) + (10#$c<<8) + 10#$d )); }
