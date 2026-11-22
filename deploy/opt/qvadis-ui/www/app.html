@@ -1641,7 +1641,7 @@ h2.title{font-size:26px}
     var card=document.querySelector('#s-help .card'); if(!card||document.getElementById('ota-toggle-row')) return;
     var row=document.createElement('div'); row.id='ota-toggle-row';
     row.style.cssText='display:flex;align-items:center;justify-content:space-between;gap:10px;margin:2px 0 14px';
-    row.innerHTML='<span class="sub">Actualizaciones automáticas</span><label class="switch"><input type="checkbox" id="ota-sw"><span class="tr"></span><span class="kn"></span></label>';
+    row.innerHTML='<span class="sub">Buscar actualizaciones automáticamente</span><label class="switch"><input type="checkbox" id="ota-sw"><span class="tr"></span><span class="kn"></span></label>';
     card.insertBefore(row, card.firstChild);
     row.querySelector('#ota-sw').addEventListener('change', function(){ var on=this.checked;
       fetch('/api/ota/config/set?enabled='+(on?1:0)).then(function(){ otaEnabled=on; if(window.toast)toast(on?'Actualizaciones activadas':'Actualizaciones desactivadas'); refreshStatus(); }); });

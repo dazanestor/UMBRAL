@@ -974,7 +974,7 @@ function handler(req, res, remote) {
   if (u.pathname === '/api/pin/set') {
     const old = u.searchParams.get('old') || '', nw = u.searchParams.get('new') || '';
     if (CFG.pin) { if (pinLocked()) return J({ ok: false, locked: true, err: 'old' }); if (!pinCheck(old)) return J({ ok: false, err: 'old' }); }
-    if (!/^\d{4,6}$/.test(nw)) return J({ ok: false, err: 'format' });   // install.sh admite 4-6 digitos
+    if (!/^\d{4}$/.test(nw)) return J({ ok: false, err: 'format' });   // el teclado del panel solo admite 4 digitos (con mas, Ajustes quedaria bloqueado)
     CFG.pin = nw; saveConfig(); return J({ ok: true });
   }
   if (u.pathname === '/api/screen') { return J(CFG.screen); }

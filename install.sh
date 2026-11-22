@@ -154,7 +154,7 @@ if [ -n "$SIP_PASS" ] && ! [[ "$SIP_PASS" =~ ^[A-Za-z0-9._~+-]{8,64}$ ]]; then
   err "la clave SIP debe tener 8-64 caracteres entre letras, numeros y . _ ~ + - (otros romperian pjsip.conf/baresip)"; exit 1; fi
 [[ "$TZ" =~ ^[A-Za-z0-9_+./-]+$ ]] && [[ "$TZ" != *..* ]] && [ -f "/usr/share/zoneinfo/$TZ" ] \
   || { err "zona horaria no valida: '$TZ' (p. ej. Europe/Madrid)"; exit 1; }
-if [ "$PIN_KEEP" != 1 ] && ! [[ "${PANEL_PIN:-}" =~ ^[0-9]{4,6}$ ]]; then err "el PIN del panel debe tener 4-6 digitos"; exit 1; fi
+if [ "$PIN_KEEP" != 1 ] && ! [[ "${PANEL_PIN:-}" =~ ^[0-9]{4}$ ]]; then err "el PIN del panel debe tener exactamente 4 digitos (el teclado del panel solo admite 4)"; exit 1; fi
 # Clave SIP vacia: NUNCA dejar la de plantilla (CHANGE_ME es publica y el UDP 5060 esta abierto en la LAN): se genera una al azar.
 # No hace falta recordarla: panel y baresip la leen de los ficheros y los moviles se emparejan por QR.
 if [ -z "$SIP_PASS" ] && grep -qs CHANGE_ME /etc/asterisk/pjsip.conf /root/.baresip/accounts; then
