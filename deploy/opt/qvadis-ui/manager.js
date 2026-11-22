@@ -162,7 +162,8 @@ function sendPush(title, body, data) {
       // Data-only (sin 'notification'): así onMessageReceived SIEMPRE se ejecuta aunque la app
       // esté en segundo plano o cerrada, y puede despertar el SIP y pintar la llamada. Alta prioridad.
       const msg = { message: { token: tk, data: Object.assign({ title: String(title), body: String(body) }, data || {}), android: { priority: 'high', ttl: '30s' } } };
-      fetch('https://fcm.googleapis.com/v1/projects/' + fcmSA.project_id + '/messages:send', { method: 'POST', headers: { Authorization: 'Bearer ' + at, 'Content-Type': 'application/json' }, body: JSON.stringify(msg) }).catch(() => {});
+      fetch('https://fcm.googleapis.com/v1/projects/' + fcmSA.project_id + '/messages:send', { method: 'POST', headers: { Authorization: 'Bearer ' + at, 'Content-Type': 'application/json' }, body: JSON.stringify(msg) })
+        .then((r) => { if (r.status === 401) fcmTok = { token: '', exp: 0 }; }).catch(() => {});   // token de acceso caducado/revocado: renovar en el siguiente envio
     });
   });
 }
@@ -254,7 +255,7 @@ function getWeather() {
     '&hourly=temperature_2m,weather_code' +
     '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max' +
     '&timezone=auto&forecast_days=6';
-  return fetch(url).then((r) => r.json()).then((j) => { j.place = w.name; wxCache = j; wxTs = now; wxKey = key; return j; });
+  return fetch(url).then((r) => r.json()).then((j) => { if (!j || !j.daily) throw new Error('weather'); j.place = w.name; wxCache = j; wxTs = now; wxKey = key; return j; });
 }
 function geocode(q) {
   const url = 'https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(q) + '&count=6&language=es&format=json';
@@ -308,16 +309,19 @@ function gpioRead(g, cb) {
 }
 
 function pigs(args, cb) {
-  execFile('pigs', args.map(String), (err) => { if (err) console.error('pigs', args.join(' '), err.message); if (cb) cb(err); });
+  // timeout: si pigpiod se cuelga, un `pigs` colgado no devolveria nunca el callback y el reintento de
+  // apagado del rele (openDoor) no se ejecutaria jamas, dejando la puerta enganchada.
+  execFile('pigs', args.map(String), { timeout: 3000 }, (err) => { if (err) console.error('pigs', args.join(' '), err.message); if (cb) cb(err); });
 }
 
-function openDoor(which) {
-  if (!Object.prototype.hasOwnProperty.call(DOORS, which)) return false;
+function openDoor(which, cb) {
+  if (!Object.prototype.hasOwnProperty.call(DOORS, which)) { if (cb) cb(false); return false; }
   const g = DOORS[which];
-  if (doorBusy[which]) return true; // ya en curso, evita re-disparo
+  if (doorBusy[which]) { if (cb) cb(true); return true; } // ya en curso, evita re-disparo
   doorBusy[which] = true;
   console.log('Abriendo puerta', which, 'GPIO' + g);
-  pigs(['w', g, 1]);
+  // cb(ok) con el resultado REAL de poner el GPIO a 1 (antes se contestaba "abierta" aunque pigpiod fallara)
+  pigs(['w', g, 1], (err) => { if (err) console.error('PUERTA', which, 'no se pudo abrir:', err.message); if (cb) { const c = cb; cb = null; c(!err); } });
   // Fin del pulso: si el apagado falla (p. ej. pigpiod reiniciandose) se reintenta cada segundo y la
   // puerta sigue "ocupada" (no se puede reabrir) hasta confirmar que el GPIO quedo en 0.
   const off = (n) => pigs(['w', g, 0], (err) => {
@@ -401,7 +405,10 @@ function intercomCmd(on) {
     (e) => { if (e) console.error('intercom', on, e.message); });
 }
 function monitorStart() { monActive = true; intercomCmd(true); }
-function monitorStop() { monActive = false; intercomCmd(false); }
+// El silencio del micro es del hardware (amixer 'nocap'): hay que devolverlo SIEMPRE al acabar y al empezar
+// una llamada, o el micro quedaba mudo en la siguiente aunque el boton del panel se viera normal.
+function micUnmute() { execFile('amixer', ['-c', HOME_CARD, 'sset', 'Mic', 'cap'], () => {}); }
+function monitorStop() { monActive = false; intercomCmd(false); micUnmute(); }
 // Aplica los 4 volumenes a los dispositivos del intercom (en vivo, si esta cargado)
 function applyVolumes() {
   const a = CFG.audio || {}; const env = audioEnv();
@@ -426,6 +433,7 @@ function doorbellRing() {
   if (ringBusy) return false;
   if (dndActive()) { console.log('Timbre con No molestar activo -> no suena'); logCall({ type: 'timbre', outcome: 'dnd' }); return false; }
   ringBusy = true;
+  micUnmute();
   console.log('Timbre -> grupo puerta (panel + moviles)');
   // Asegura los dispositivos AEC (por si el boot los cargó antes de que Pulse estuviera listo);
   // es idempotente y hay margen (RING_DELAY) antes del originate para que baresip pueda abrir el audio.
@@ -614,6 +622,10 @@ function handler(req, res, remote) {
     const enabled = u.searchParams.get('enabled') === '1';
     const url = (u.searchParams.get('url') || '').slice(0, 300);
     const type = (u.searchParams.get('type') || 'mjpeg');
+    // ffmpeg abre lo que le des (file:, concat:, pipe:...): solo se admiten esquemas de red de camara
+    if (url && !/^(https?|rtsps?):\/\/[^\s]+$/i.test(url)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end('{"ok":false,"err":"url"}');
+    }
     CFG.camera = { enabled: enabled && !!url, url, type };
     saveConfig();
     camRestart();   // reinicia el ffmpeg compartido con la nueva URL (o lo para si se desactiva)
@@ -665,7 +677,7 @@ function handler(req, res, remote) {
   if (u.pathname === '/api/weather/set') {
     const lat = parseFloat(u.searchParams.get('lat')), lon = parseFloat(u.searchParams.get('lon'));
     const name = (u.searchParams.get('name') || '').slice(0, 60);
-    if (isFinite(lat) && isFinite(lon) && name) {
+    if (isFinite(lat) && isFinite(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180 && name) {
       CFG.weather = { name, lat, lon }; saveConfig(); wxCache = null;
       res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ ok: true, weather: CFG.weather }));
     }
@@ -676,11 +688,14 @@ function handler(req, res, remote) {
     if (which === 'aux' && CFG.doors && CFG.doors.aux && CFG.doors.aux.enabled === false) {
       res.writeHead(403, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ ok: false, door: which, err: 'disabled' }));
     }
-    const ok = openDoor(which);
     const who = remote ? ((mobileByToken(u, req) || {}).name || '?') : 'panel';
-    console.log('AUDIT apertura puerta=' + which + ' ok=' + ok + ' origen=' + (remote ? 'remoto' : 'local') + ' por=' + who);
-    res.writeHead(ok ? 200 : 400, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ ok, door: which }));
+    const known = Object.prototype.hasOwnProperty.call(DOORS, which);
+    openDoor(which, (ok) => {
+      console.log('AUDIT apertura puerta=' + which + ' ok=' + ok + ' origen=' + (remote ? 'remoto' : 'local') + ' por=' + who);
+      res.writeHead(ok ? 200 : (known ? 500 : 400), { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok, door: which }));
+    });
+    return;
   }
   if (u.pathname === '/api/ring') {
     const ok = doorbellRing();
@@ -785,11 +800,20 @@ function handler(req, res, remote) {
   if (u.pathname === '/api/ntp/set') { const on = u.searchParams.get('on') === '1'; execFile('sudo', ['-n', 'timedatectl', 'set-ntp', on ? 'true' : 'false'], { timeout: 5000 }, (e) => { J({ ok: !e, auto: on }); }); return; }
   if (u.pathname === '/api/datetime/set') {
     const dt = (u.searchParams.get('dt') || '').trim();
-    if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(dt)) return J({ ok: false, err: 'format' });
+    const dm = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?$/.exec(dt);
+    if (!dm) return J({ ok: false, err: 'format' });
+    // Valores reales (mes 13, 30 de febrero, 25:99...): se comprueban ANTES de apagar NTP, porque si
+    // timedatectl los rechaza ya no hay sincronizacion automatica y la hora se queda a la deriva.
+    const [yy, mo, da, hh, mi, ss] = [+dm[1], +dm[2], +dm[3], +dm[4], +dm[5], +(dm[6] || 0)];
+    const chk = new Date(Date.UTC(yy, mo - 1, da, hh, mi, ss));
+    if (yy < 2000 || yy > 2099 || hh > 23 || mi > 59 || ss > 59 || chk.getUTCMonth() !== mo - 1 || chk.getUTCDate() !== da) return J({ ok: false, err: 'format' });
     const full = dt.length === 16 ? dt + ':00' : dt;
     // Ajustar hora manual exige NTP desactivado: lo apagamos primero y luego fijamos la hora.
     execFile('sudo', ['-n', 'timedatectl', 'set-ntp', 'false'], { timeout: 5000 }, () => {
-      execFile('sudo', ['-n', 'timedatectl', 'set-time', full], { timeout: 5000 }, (e) => { J({ ok: !e, auto: false }); });
+      execFile('sudo', ['-n', 'timedatectl', 'set-time', full], { timeout: 5000 }, (e) => {
+        if (e) { execFile('sudo', ['-n', 'timedatectl', 'set-ntp', 'true'], { timeout: 5000 }, () => J({ ok: false, auto: true })); return; }   // no se pudo: NTP vuelve a estar activo
+        J({ ok: true, auto: false });
+      });
     });
     return;
   }
@@ -823,9 +847,12 @@ function handler(req, res, remote) {
   }
   if (u.pathname === '/api/remote/set') {
     const old = CFG.remote || {};
+    const prov = u.searchParams.get('provider') || 'none';
+    const gurl = (u.searchParams.get('url') || '').slice(0, 300).trim();
+    if (!['none', 'duckdns', 'generic'].includes(prov) || (gurl && !/^https?:\/\/[^\s]+$/i.test(gurl))) return J({ ok: false, err: 'input' });
     CFG.remote = {
       domain: (u.searchParams.get('domain') || '').slice(0, 120).trim(),
-      provider: u.searchParams.get('provider') || 'none',
+      provider: prov,
       host: (u.searchParams.get('host') || '').slice(0, 120).trim(),
       token: (u.searchParams.get('token') || '') || (old.token || ''), // vacío = conservar
       url: (u.searchParams.get('url') || '').slice(0, 300).trim(),
@@ -934,8 +961,8 @@ function handler(req, res, remote) {
     CFG.dnd = {
       enabled: u.searchParams.get('enabled') === '1',
       sched: u.searchParams.get('sched') === '1',
-      from: u.searchParams.get('from') || CFG.dnd.from,
-      to: u.searchParams.get('to') || CFG.dnd.to,
+      from: /^([01]?\d|2[0-3]):[0-5]\d$/.test(u.searchParams.get('from') || '') ? u.searchParams.get('from') : CFG.dnd.from,
+      to: /^([01]?\d|2[0-3]):[0-5]\d$/.test(u.searchParams.get('to') || '') ? u.searchParams.get('to') : CFG.dnd.to,
     };
     saveConfig(); return J({ ok: true, dnd: CFG.dnd, active: dndActive() });
   }
@@ -988,8 +1015,8 @@ function handler(req, res, remote) {
     const tok = reqToken(u, req, !!(req.socket && req.socket.encrypted));
     const m = (CFG.mobiles || []).find((x) => tokEq(x.token, tok));
     if (!m) return J({ ok: false, err: 'auth' });
-    m.fcm = (u.searchParams.get('fcm') || '').slice(0, 400);
-    saveConfig();
+    const nf = (u.searchParams.get('fcm') || '').slice(0, 400);
+    if (m.fcm !== nf) { m.fcm = nf; saveConfig(); }   // la app lo envia en cada apertura: sin cambios no se reescribe la eMMC
     return J({ ok: true });
   }
 

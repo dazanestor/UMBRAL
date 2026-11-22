@@ -726,7 +726,7 @@ let tT;function toast(msg){const t=document.getElementById('toast');t.textConten
   function ovCamStop(){ ovWant=false; if(ovPollTimer){clearTimeout(ovPollTimer);ovPollTimer=null;} if(ovCanvas){ try{ ovCanvas.getContext('2d').clearRect(0,0,ovCanvas.width,ovCanvas.height);}catch(e){} } }
   document.querySelectorAll('#ov-call .round.ans').forEach(function(b){ b.addEventListener('click',function(){ post('/api/call/answer'); showActive(); }); });
   document.querySelectorAll('#ov-call .round.hang').forEach(function(b){ b.addEventListener('click',function(){ post('/api/call/hangup'); hideCall(); }); });
-  function showIncoming(){ answered=false; if(who)who.textContent='Puerta'; if(st)st.textContent='Llamada entrante…'; if(inc)inc.hidden=false; if(act)act.hidden=true; if(ov)ov.hidden=false; var mic=document.getElementById('micbtn'); if(mic){ mic.classList.remove('active'); var sv=mic.querySelector('.ic svg'); if(sv&&typeof MIC_ON_SVG!=='undefined')sv.innerHTML=MIC_ON_SVG; } ovCamStart(); }
+  function showIncoming(){ answered=false; if(who)who.textContent='Puerta'; if(st)st.textContent='Llamada entrante…'; if(inc)inc.hidden=false; if(act)act.hidden=true; if(ov)ov.hidden=false; var mic=document.getElementById('micbtn'); if(mic){ mic.classList.remove('active'); var sv=mic.querySelector('.ic svg'); if(sv&&typeof MIC_ON_SVG!=='undefined')sv.innerHTML=MIC_ON_SVG; } try{ fetch('/api/call/mute?on=0').catch(function(){}); }catch(e){} ovCamStart(); }
   function showActive(){ answered=true; if(st)st.textContent='En llamada'; if(inc)inc.hidden=true; if(act)act.hidden=false; }
   function hideCall(){ answered=false; if(ov)ov.hidden=true; if(inc)inc.hidden=false; if(act)act.hidden=true; ovCamStop(); }
   try{ var es=new EventSource('/api/events');
