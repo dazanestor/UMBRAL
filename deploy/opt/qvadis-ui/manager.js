@@ -82,10 +82,10 @@ try { Object.assign(CFG, JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'))); } ca
 function atomicWrite(file, data, mode) {
   const tmp = file + '.tmp';
   const fd = fs.openSync(tmp, 'w', mode || 0o644);
-  try { fs.writeSync(fd, data); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+  try { if (mode) fs.fchmodSync(fd, mode); fs.writeSync(fd, data); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
   fs.renameSync(tmp, file);
 }
-function saveConfig() { try { atomicWrite(CONFIG_FILE, JSON.stringify(CFG, null, 2)); } catch (e) { console.error('saveConfig', e.message); } }
+function saveConfig() { try { atomicWrite(CONFIG_FILE, JSON.stringify(CFG, null, 2), 0o600); } catch (e) { console.error('saveConfig', e.message); } }
 
 // --- Helpers de sistema ---
 function ast(cmd) { return new Promise((res) => { execFile('/usr/sbin/asterisk', ['-rx', cmd], { timeout: 4000 }, (e, out) => res(out || '')); }); }
@@ -183,6 +183,8 @@ function getPublicIp() {
 }
 function updateDdns() {
   const r = CFG.remote || {};
+  // Sin DDNS ni dominio configurados no se consulta ningun servicio externo (no revelar la IP a terceros)
+  if ((!r.provider || r.provider === 'none') && !r.domain) { REMOTE.status = 'sin configurar'; REMOTE.lastUpdate = Date.now(); return Promise.resolve(); }
   return getPublicIp().then((ip) => {
     if (ip) REMOTE.publicIp = ip;
     if (!r.provider || r.provider === 'none') { REMOTE.status = r.domain ? 'IP fija / sin DDNS' : 'sin configurar'; REMOTE.lastUpdate = Date.now(); return; }
@@ -253,23 +255,60 @@ const doorBusy = {};
 // SEGURIDAD (crítico): apertura es activo-ALTO; si el proceso muere a mitad del pulso,
 // el GPIO se queda ALTO y el abridor queda ENGANCHADO (riesgo de quemar la cerradura).
 // Forzamos los relés a reposo (BAJO) al arrancar y, de forma SÍNCRONA, al parar/reiniciar.
-function doorsOffSync() { for (const w in DOORS) { try { execFileSync('pigs', ['w', String(DOORS[w]), '0']); } catch (e) {} doorBusy[w] = false; } }
+// timeout: si pigpiod se cuelga, no bloquear la parada del proceso. onlyIdle: no tocar puertas con pulso en curso.
+function doorsOffSync(onlyIdle) { for (const w in DOORS) { if (onlyIdle && doorBusy[w]) continue; try { execFileSync('pigs', ['w', String(DOORS[w]), '0'], { timeout: 2000 }); } catch (e) {} doorBusy[w] = false; } }
 try { doorsOffSync(); } catch (e) {}
+// Si pigpiod aun no estaba listo al arrancar, el apagado inicial pudo fallar en silencio: reintentos.
+[3000, 10000, 30000].forEach((t) => setTimeout(() => { try { doorsOffSync(true); } catch (e) {} }, t).unref());
 ['SIGTERM', 'SIGINT', 'SIGHUP'].forEach((s) => process.on(s, () => { try { doorsOffSync(); } catch (e) {} process.exit(0); }));
 process.on('exit', () => { try { doorsOffSync(); } catch (e) {} });
+
+// Lectura de GPIO por el socket de pigpiod (una sola conexion persistente) en vez de lanzar un
+// proceso `pigs` por sondeo (~16/s en el timbre). Protocolo pigpio: peticion y respuesta de 4 x uint32 LE;
+// READ = cmd 3, el valor va en el ultimo campo de la respuesta. Si el socket no esta disponible, usa `pigs r`.
+let pgSock = null, pgQueue = [], pgBuf = Buffer.alloc(0), pgDownUntil = 0, pgLastResp = 0;
+function pgConnect() {
+  if (pgSock || Date.now() < pgDownUntil) return;
+  const sk = net.connect(8888, '::1'); pgSock = sk; pgLastResp = Date.now(); sk.setNoDelay(true);
+  sk.on('data', (d) => {
+    pgBuf = Buffer.concat([pgBuf, d]); pgLastResp = Date.now();
+    while (pgBuf.length >= 16) { const res = pgBuf.readInt32LE(12); pgBuf = pgBuf.slice(16); const cb = pgQueue.shift(); if (cb) cb(null, res); }
+  });
+  const fail = () => {
+    if (pgSock !== sk) return;
+    pgSock = null; pgBuf = Buffer.alloc(0); pgDownUntil = Date.now() + 5000;
+    const q = pgQueue; pgQueue = []; q.forEach((cb) => { try { cb(new Error('pigpiod')); } catch (e) {} });
+  };
+  sk.on('error', () => { try { sk.destroy(); } catch (e) {} fail(); }); sk.on('close', fail);
+}
+function gpioRead(g, cb) {
+  pgConnect();
+  if (pgSock && pgQueue.length && Date.now() - pgLastResp > 3000) { try { pgSock.destroy(); } catch (e) {} } // pigpiod no responde
+  if (pgSock && !pgSock.destroyed) {
+    const b = Buffer.alloc(16); b.writeUInt32LE(3, 0); b.writeUInt32LE(g, 4);
+    pgQueue.push(cb); pgSock.write(b); return;
+  }
+  execFile('pigs', ['r', String(g)], (err, stdout) => cb(err, err ? 0 : parseInt(String(stdout).trim(), 10)));
+}
 
 function pigs(args, cb) {
   execFile('pigs', args.map(String), (err) => { if (err) console.error('pigs', args.join(' '), err.message); if (cb) cb(err); });
 }
 
 function openDoor(which) {
+  if (!Object.prototype.hasOwnProperty.call(DOORS, which)) return false;
   const g = DOORS[which];
-  if (g === undefined) return false;
   if (doorBusy[which]) return true; // ya en curso, evita re-disparo
   doorBusy[which] = true;
   console.log('Abriendo puerta', which, 'GPIO' + g);
   pigs(['w', g, 1]);
-  setTimeout(() => { pigs(['w', g, 0]); doorBusy[which] = false; console.log('Puerta', which, 'cerrada (fin pulso)'); }, DOOR_PULSE_MS);
+  // Fin del pulso: si el apagado falla (p. ej. pigpiod reiniciandose) se reintenta cada segundo y la
+  // puerta sigue "ocupada" (no se puede reabrir) hasta confirmar que el GPIO quedo en 0.
+  const off = (n) => pigs(['w', g, 0], (err) => {
+    if (err) { console.error('PUERTA', which, 'no se pudo poner a 0, reintento', n + 1); return setTimeout(() => off(n + 1), 1000); }
+    doorBusy[which] = false; console.log('Puerta', which, 'cerrada (fin pulso)');
+  });
+  setTimeout(() => off(0), DOOR_PULSE_MS);
   return true;
 }
 
@@ -410,11 +449,13 @@ function doorbellRing() {
   return true;
 }
 // Vigilancia del pin del timbre (flanco 1->0)
-let lastRing = 1;
+let lastRing = 1, ringPollAt = 0;
 setInterval(() => {
-  execFile('pigs', ['r', String(RING_GPIO)], (err, stdout) => {
-    if (err) return;
-    const v = parseInt(String(stdout).trim(), 10);
+  if (ringPollAt && Date.now() - ringPollAt < 2000) return; // lectura anterior aun en curso: no acumular
+  ringPollAt = Date.now();
+  gpioRead(RING_GPIO, (err, v) => {
+    ringPollAt = 0;
+    if (err || !isFinite(v) || v < 0) return;
     if (lastRing === 1 && v === 0) doorbellRing();
     lastRing = v;
   });
@@ -449,11 +490,14 @@ setInterval(() => {
   const off = (CFG.screen && CFG.screen.off_after) || 0;
   if (off > 0 && screenOn && Date.now() - lastActivity > off * 1000) { screenOn = false; setBrightness(0); sseSend({ type: 'screen', on: false }); }
 }, 2000);
-let lastPir = 0;
+let lastPir = 0, pirPollAt = 0;
 setInterval(() => {
   if (!(CFG.screen && CFG.screen.proximity)) return;
-  execFile('pigs', ['r', String(PIR_GPIO)], (e, out) => {
-    if (e) return; const v = parseInt(String(out).trim(), 10);
+  if (pirPollAt && Date.now() - pirPollAt < 2000) return;
+  pirPollAt = Date.now();
+  gpioRead(PIR_GPIO, (e, v) => {
+    pirPollAt = 0;
+    if (e || !isFinite(v) || v < 0) return;
     if (v === 1 && lastPir === 0) wake();
     lastPir = v;
   });
@@ -475,17 +519,22 @@ function camStart() {
   if (/^rtsp:/i.test(c.url)) args.push('-rtsp_transport', 'tcp');
   args.push('-i', c.url, '-f', 'mpjpeg', '-q:v', '5', '-r', '12', '-');
   let gotFrame = false;
-  try { camFF = spawn('ffmpeg', args); } catch (e) { camFF = null; camFailUntil = Date.now() + 5000; return; }
-  camFF.stdout.on('data', (chunk) => {
-    for (const r of camClients) { try { r.write(chunk); } catch (e) {} }          // clientes MJPEG (si los hay)
+  let ff; try { ff = camFF = spawn('ffmpeg', args); } catch (e) { camFF = null; camFailUntil = Date.now() + 5000; return; }
+  ff.stdout.on('data', (chunk) => {
+    for (const r of camClients.slice()) {                                           // clientes MJPEG (si los hay)
+      // Cliente lento: si su buffer de salida pasa de ~1,5 MB se corta (reconecta) en vez de crecer sin limite
+      try { if (r.writableLength > 1572864) r.destroy(); else r.write(chunk); } catch (e) {}
+    }
     camBuf = Buffer.concat([camBuf, chunk]);                                       // último fotograma para frame.jpg
     if (camBuf.length > 3 * 1048576) camBuf = camBuf.slice(camBuf.length - 1048576);
     const end = camBuf.lastIndexOf(JPEG_EOI);
     if (end > 1) { const s = camBuf.lastIndexOf(JPEG_SOI, end); if (s >= 0 && s < end) { camLastFrame = camBuf.slice(s, end + 2); camBuf = camBuf.slice(end + 2); gotFrame = true; } }
   });
-  camFF.stderr.on('data', () => {});
-  camFF.on('error', () => { camFF = null; });
-  camFF.on('close', () => {
+  ff.stderr.on('data', () => {});
+  // Solo limpiar el estado si sigue siendo ESTE proceso el activo (camRestart/camStopLater pueden haber lanzado otro)
+  ff.on('error', () => { if (camFF === ff) camFF = null; });
+  ff.on('close', () => {
+    if (camFF !== ff) return;
     camFF = null; camBuf = Buffer.alloc(0);
     if (!gotFrame) camFailUntil = Date.now() + 5000;   // origen caído (p. ej. 401): espera 5 s antes de reintentar
     if (camClients.length || Date.now() - camLastPoll < 4000) setTimeout(camStart, gotFrame ? 1000 : 5000);
@@ -497,7 +546,21 @@ function camStopLater() {  // para el ffmpeg si no hay ni clientes MJPEG ni poll
     if (camFF && camClients.length === 0 && Date.now() - camLastPoll > 3500) { try { camFF.kill('SIGKILL'); } catch (e) {} camFF = null; }
   }, 3500);
 }
-function camRestart() { camLastFrame = null; camBuf = Buffer.alloc(0); if (camFF) { try { camFF.kill('SIGKILL'); } catch (e) {} camFF = null; } } // al cambiar la URL
+function camRestart() { camLastFrame = null; camBuf = Buffer.alloc(0); if (camFF) { try { camFF.kill('SIGKILL'); } catch (e) {} camFF = null; } if (camClients.length) camStart(); } // al cambiar la URL (el close del viejo ya no relanza)
+
+// PIN: 5 fallos seguidos bloquean las comprobaciones 30 s (el PIN solo protege la UI del panel)
+let pinFails = 0, pinLockUntil = 0;
+function pinLocked() { return Date.now() < pinLockUntil; }
+function pinCheck(p) {
+  const ok = String(p) === String(CFG.pin);
+  if (ok) { pinFails = 0; return true; }
+  if (++pinFails >= 5) { pinFails = 0; pinLockUntil = Date.now() + 30000; }
+  return false;
+}
+function mobileByToken(u, req) {
+  const t = u.searchParams.get('token') || (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
+  return (CFG.mobiles || []).find((m) => m.token && m.token === t);
+}
 
 function handler(req, res, remote) {
   let u;
@@ -507,8 +570,8 @@ function handler(req, res, remote) {
   if (remote && !remoteOk(u, req)) { res.writeHead(403, { 'Content-Type': 'application/json' }); return res.end('{"error":"forbidden"}'); }
 
   if (u.pathname === '/api/brightness') {
-    const v = Number(u.searchParams.get('v'));
-    if (isFinite(v)) { curBrightness = Math.max(0, Math.min(100, v)); CFG.screen.brightness = curBrightness; saveConfig(); screenOn = true; lastActivity = Date.now(); setBrightness(curBrightness); }
+    const vs = u.searchParams.get('v'); const v = Number(vs);
+    if (vs !== null && vs.trim() !== '' && isFinite(v)) { curBrightness = Math.max(0, Math.min(100, v)); CFG.screen.brightness = curBrightness; saveConfig(); screenOn = true; lastActivity = Date.now(); setBrightness(curBrightness); }
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     return res.end('ok');
   }
@@ -594,7 +657,12 @@ function handler(req, res, remote) {
   }
   if (u.pathname === '/api/door/open') {
     const which = u.searchParams.get('which') || 'front';
+    if (which === 'aux' && CFG.doors && CFG.doors.aux && CFG.doors.aux.enabled === false) {
+      res.writeHead(403, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ ok: false, door: which, err: 'disabled' }));
+    }
     const ok = openDoor(which);
+    const who = remote ? ((mobileByToken(u, req) || {}).name || '?') : 'panel';
+    console.log('AUDIT apertura puerta=' + which + ' ok=' + ok + ' origen=' + (remote ? 'remoto' : 'local') + ' por=' + who);
     res.writeHead(ok ? 200 : 400, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({ ok, door: which }));
   }
@@ -636,7 +704,7 @@ function handler(req, res, remote) {
   if (u.pathname === '/api/audio') { return J(CFG.audio || {}); }
   if (u.pathname === '/api/audio/set') {
     CFG.audio = CFG.audio || {};
-    ['spkHome', 'spkStreet', 'micHome', 'micStreet'].forEach((k) => { const v = u.searchParams.get(k); if (v !== null && v !== '') CFG.audio[k] = Math.max(0, Math.min(100, parseInt(v, 10) || 0)); });
+    ['spkHome', 'spkStreet', 'micHome', 'micStreet'].forEach((k) => { const v = u.searchParams.get(k); if (v !== null && v !== '') { const n = parseInt(v, 10); if (isFinite(n)) CFG.audio[k] = Math.max(0, Math.min(100, n)); } });
     saveConfig(); applyVolumes();
     return J({ ok: true, audio: CFG.audio });
   }
@@ -817,7 +885,8 @@ function handler(req, res, remote) {
   }
   if (u.pathname === '/api/volume') { return J({ volume: CFG.volume }); }
   if (u.pathname === '/api/volume/set') {
-    const v = Math.max(0, Math.min(100, parseInt(u.searchParams.get('v')) || 0));
+    const v0 = parseInt(u.searchParams.get('v')); if (!isFinite(v0)) return J({ ok: false, err: 'v' });
+    const v = Math.max(0, Math.min(100, v0));
     CFG.volume = v; saveConfig();
     execFile('amixer', ['-c', HOME_CARD, 'sset', 'PCM', v + '%', 'unmute'], () => {});
     return J({ ok: true, volume: v });
@@ -830,7 +899,8 @@ function handler(req, res, remote) {
   }
   if (u.pathname === '/api/micvolume') { return J({ micvolume: CFG.micvolume }); }
   if (u.pathname === '/api/micvolume/set') {
-    const v = Math.max(0, Math.min(100, parseInt(u.searchParams.get('v')) || 0));
+    const v0 = parseInt(u.searchParams.get('v')); if (!isFinite(v0)) return J({ ok: false, err: 'v' });
+    const v = Math.max(0, Math.min(100, v0));
     CFG.micvolume = v; saveConfig();
     execFile('amixer', ['-c', HOME_CARD, 'sset', 'Mic', v + '%', 'cap'], () => {});
     return J({ ok: true, micvolume: v });
@@ -852,11 +922,14 @@ function handler(req, res, remote) {
     saveConfig(); return J({ ok: true, dnd: CFG.dnd, active: dndActive() });
   }
   if (u.pathname === '/api/pin') { return J({ set: !!CFG.pin }); }
-  if (u.pathname === '/api/pin/verify') { return J({ ok: (u.searchParams.get('pin') || '') === CFG.pin }); }
+  if (u.pathname === '/api/pin/verify') {
+    if (pinLocked()) return J({ ok: false, locked: true });
+    return J({ ok: pinCheck(u.searchParams.get('pin') || '') });
+  }
   if (u.pathname === '/api/pin/set') {
     const old = u.searchParams.get('old') || '', nw = u.searchParams.get('new') || '';
-    if (CFG.pin && old !== CFG.pin) return J({ ok: false, err: 'old' });
-    if (!/^\d{4}$/.test(nw)) return J({ ok: false, err: 'format' });
+    if (CFG.pin) { if (pinLocked()) return J({ ok: false, locked: true, err: 'old' }); if (!pinCheck(old)) return J({ ok: false, err: 'old' }); }
+    if (!/^\d{4,6}$/.test(nw)) return J({ ok: false, err: 'format' });   // install.sh admite 4-6 digitos
     CFG.pin = nw; saveConfig(); return J({ ok: true });
   }
   if (u.pathname === '/api/screen') { return J(CFG.screen); }
@@ -945,8 +1018,7 @@ server.listen(PORT, '127.0.0.1', () => {
   execFile('amixer', ['-c', HOME_CARD, 'sset', 'PCM', (CFG.volume || 80) + '%', 'unmute'], () => {});
   execFile('amixer', ['-c', HOME_CARD, 'sset', 'Mic', (CFG.micvolume || 85) + '%', 'cap'], () => {});
   // Estado seguro de las puertas al arrancar: cerradas (0)
-  pigs(['w', DOORS.front, 0]);
-  pigs(['w', DOORS.aux, 0]);
+  doorsOffSync(true);
   // Conexion al control de baresip (eventos de llamada)
   bsConnect();
   // Retención de capturas/llamadas (30 días): al arrancar y cada 6 h
