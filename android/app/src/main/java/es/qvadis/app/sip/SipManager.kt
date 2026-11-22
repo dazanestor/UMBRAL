@@ -49,7 +49,9 @@ class SipManager private constructor(private val appCtx: Context, private val ac
     @Volatile private var regState: RegistrationState? = null
     @Volatile private var regSince = 0L
     @Volatile private var recovering = false
-    @Volatile private var lastHost: String? = null
+    private var incomingCb: (() -> Unit)? = null
+    private var endedCb: (() -> Unit)? = null
+    private var lastRebuild = 0L
     private var netCb: ConnectivityManager.NetworkCallback? = null
     private var underCb: ConnectivityManager.NetworkCallback? = null
     private var ignoreNetUntil = 0L
@@ -75,8 +77,12 @@ class SipManager private constructor(private val appCtx: Context, private val ac
 
     fun start(onIncoming: () -> Unit, onEnded: () -> Unit) {
         h.post {
-            if (!built) { buildCore(onIncoming, onEnded); built = true }
-            else core.refreshRegisters()
+            incomingCb = onIncoming; endedCb = onEnded
+            if (!built) {
+                buildCore(onIncoming, onEnded); built = true
+                watchNetwork()                       // una sola vez (sobrevive a las reconstrucciones)
+                h.postDelayed(watchdog, 30_000)
+            } else core.refreshRegisters()
         }
     }
 
@@ -125,7 +131,6 @@ class SipManager private constructor(private val appCtx: Context, private val ac
         // el resolutor del SISTEMA (que sí funciona, p.ej. por VPN) y le damos a Linphone la IP;
         // el TLS sigue validando por CA anclada (verifyServerCn=false, así que la IP no rompe nada).
         val host = resolveHost()
-        lastHost = host
         android.util.Log.i("QvadisSip", "server host resuelto")
 
         val params = core.createAccountParams()
@@ -174,8 +179,6 @@ class SipManager private constructor(private val appCtx: Context, private val ac
         core.start()
         h.post(iterate)
         regState = null; regSince = SystemClock.elapsedRealtime(); lastProbe = regSince
-        watchNetwork()
-        h.postDelayed(watchdog, 30_000)
     }
 
     /** Resuelve con el resolutor del SISTEMA (el de belle-sip falla bajo VPN). */
@@ -183,36 +186,30 @@ class SipManager private constructor(private val appCtx: Context, private val ac
         runCatching { java.net.InetAddress.getByName(acc.sipDomain()).hostAddress }.getOrNull() ?: acc.sipDomain()
 
     /**
-     * Fuerza una conexión nueva: vuelve a resolver el servidor (puede haber cambiado de IP o ser
-     * otra según la red) y alterna la "alcanzabilidad" de red del Core, que cierra los sockets
-     * viejos y re-registra. La resolución va fuera del hilo del Core (DNS bloqueante).
+     * Reconexión radical: PARA y RECONSTRUYE el Core de Linphone. Alternar la alcanzabilidad de red
+     * no basta: tras un cambio de red (VPN) pueden sobrevivir canales TLS muertos y Linphone sigue
+     * usándolos para contestar (p. ej. al OPTIONS/INVITE de la placa), que nunca recibe la respuesta.
+     * Con un Core nuevo no queda ningún canal viejo y se re-resuelve el servidor. No se toca durante
+     * una llamada (el vigilante reintenta) y no más de una vez cada 20 s.
      */
     private fun reconnect(why: String) {
         if (!built || recovering) return
         recovering = true
-        android.util.Log.i("QvadisSip", "reconectando: $why")
-        Thread {
-            val host = resolveHost()
-            h.post {
-                if (!built) { recovering = false; return@post }
-                runCatching {
-                    val a = core.defaultAccount
-                    if (a != null && host != lastHost) {
-                        val p = a.params.clone()
-                        p.serverAddress = factory.createAddress("sip:$host:${acc.tlsPort};transport=tls")
-                            ?.apply { transport = TransportType.Tls }
-                        a.params = p
-                        lastHost = host
-                    }
-                    core.isNetworkReachable = false
-                }
-                h.postDelayed({
-                    runCatching { core.isNetworkReachable = true; core.refreshRegisters() }
-                    regSince = SystemClock.elapsedRealtime()
-                    recovering = false
-                }, 1000)
-            }
-        }.start()
+        h.post {
+            try {
+                val now = SystemClock.elapsedRealtime()
+                val inCall = runCatching { core.callsNb > 0 }.getOrDefault(false)
+                val inc = incomingCb; val end = endedCb
+                if (inCall || inc == null || end == null || now - lastRebuild < 20_000) return@post
+                android.util.Log.i("QvadisSip", "reconstruyendo el Core: $why")
+                lastRebuild = now
+                h.removeCallbacks(iterate)
+                built = false
+                runCatching { core.stop() }
+                buildCore(inc, end)
+                built = true
+            } finally { recovering = false }
+        }
     }
 
     private val netChanged = Runnable { reconnect("cambio de red") }
