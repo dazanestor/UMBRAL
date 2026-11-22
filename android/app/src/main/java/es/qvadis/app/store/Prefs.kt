@@ -19,6 +19,10 @@ object Prefs {
     fun setRingtoneUri(ctx: Context, uri: String?) =
         p(ctx).edit().apply { if (uri == null) remove(K_RINGTONE) else putString(K_RINGTONE, uri) }.apply()
 
+    /** Permisos/ajustes que se piden UNA vez (si el usuario los rechaza, no se le vuelve a abrir cada arranque). */
+    fun wasAsked(ctx: Context, key: String): Boolean = p(ctx).getBoolean("asked_$key", false)
+    fun markAsked(ctx: Context, key: String) = p(ctx).edit().putBoolean("asked_$key", true).apply()
+
     /** Cert público de la placa (PEM) para anclar TLS en Linphone; "" si aún no se descargó. */
     fun certPem(ctx: Context): String = p(ctx).getString(K_CERT, "") ?: ""
     fun setCertPem(ctx: Context, pem: String?) =

@@ -27,6 +27,8 @@ object Notifications {
 
     const val CH_INCOMING = "umbral_incoming"
     const val CH_MISSED = "umbral_missed"
+    /** Respaldo con sonido+vibración: se usa si Android no deja abrir la pantalla de llamada (permiso de pantalla completa denegado). */
+    const val CH_INCOMING_LOUD = "umbral_incoming_loud"
     const val ID_INCOMING = 1001
     const val ID_MISSED = 1002
     private val missedSeq = java.util.concurrent.atomic.AtomicInteger(0)
@@ -46,14 +48,24 @@ object Notifications {
         val missed = NotificationChannel(CH_MISSED, "Llamadas perdidas", NotificationManager.IMPORTANCE_DEFAULT).apply {
             description = "Resumen de llamadas no atendidas"
         }
+        val loud = NotificationChannel(CH_INCOMING_LOUD, "Llamada a la puerta (con sonido)", NotificationManager.IMPORTANCE_HIGH).apply {
+            description = "Aviso con sonido cuando no se puede abrir la pantalla de llamada"
+            enableVibration(true); vibrationPattern = longArrayOf(0, 700, 900, 700, 900)
+            val uri = runCatching { android.net.Uri.parse(es.qvadis.app.store.Prefs.ringtoneUri(ctx)) }.getOrNull()
+            if (uri != null) setSound(uri, android.media.AudioAttributes.Builder()
+                .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
+        }
         nm.createNotificationChannel(incoming)
+        nm.createNotificationChannel(loud)
         nm.createNotificationChannel(missed)
     }
 
     /** Recrea el canal entrante para aplicar un tono nuevo (los canales fijan el sonido al crearse). */
     fun applyRingtone(ctx: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        ctx.getSystemService(NotificationManager::class.java).deleteNotificationChannel(CH_INCOMING)
+        val nm = ctx.getSystemService(NotificationManager::class.java)
+        nm.deleteNotificationChannel(CH_INCOMING); nm.deleteNotificationChannel(CH_INCOMING_LOUD)
         ensureChannels(ctx)
     }
 
@@ -66,7 +78,11 @@ object Notifications {
             Intent(ctx, CallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val n = NotificationCompat.Builder(ctx, CH_INCOMING)
+        // Sin permiso de pantalla completa (Android 14+) la pantalla de llamada no se abre sola y, con el
+        // canal silencioso, el timbre no sonaría: se usa el canal con sonido y vibración.
+        val nmgr = ctx.getSystemService(NotificationManager::class.java)
+        val noFsi = Build.VERSION.SDK_INT >= 34 && !nmgr.canUseFullScreenIntent()
+        val n = NotificationCompat.Builder(ctx, if (noFsi) CH_INCOMING_LOUD else CH_INCOMING)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(ctx.getString(R.string.call_title))
             .setCategory(NotificationCompat.CATEGORY_CALL)

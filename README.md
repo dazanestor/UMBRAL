@@ -136,7 +136,7 @@ El repositorio **no contiene contraseñas reales** (solo *placeholders* `CHANGE_
 
 | Credencial | Valor por defecto | Cómo se fija / cambia |
 |---|---|---|
-| **PIN de Ajustes** | **`1234`** | `install.sh` lo pregunta (vacío = `1234`) y te recuerda cambiarlo al terminar. Cambiar en **Ajustes → Seguridad · PIN**. |
+| **PIN de Ajustes** | **`1234`** | Son **4 dígitos**. `install.sh` lo pregunta (vacío = `1234`) y te recuerda cambiarlo al terminar. Cambiar en **Ajustes → Seguridad · PIN**. |
 | **Contraseña SIP del panel** (extensión `1000`) | la que pongas en `install.sh` (`SIP_PASS`); **si la dejas vacía se genera una aleatoria** | `config.local` o el asistente. |
 | **Contraseña SIP de cada móvil** | **aleatoria** al emparejar | se muestra en el **QR**; no se edita a mano. |
 | **WiFi (SSID + clave)** | la que pongas en `liberar.sh` / `install.sh` | **Ajustes → WiFi**, o `config.local`. |
@@ -195,7 +195,7 @@ Toca el icono de ajustes. Todo se escribe con el **teclado en pantalla**.
 2. Se crea una **cuenta SIP nueva** (extensión 1001, 1002… con contraseña aleatoria) y aparece un **QR + credenciales** (Servidor, Puerto, Usuario, Contraseña).
 3. Configura un softphone (Linphone/Zoiper) con esos datos, **o** la app Android **UMBRAL** (en [`android/`](android/)), que **escanea el QR** y se autoconfigura.
 
-El móvil entra automáticamente en el **grupo de llamada**: sonará cuando llamen a la puerta. Cada móvil se puede **quitar** con la ✕.
+El móvil entra automáticamente en el **grupo de llamada**: sonará cuando llamen a la puerta. Cada móvil se puede **quitar** con la ✕ (te pedirá el PIN). El QR con las credenciales se cierra solo a los 2 minutos.
 
 ---
 

@@ -351,6 +351,8 @@ class SipManager private constructor(private val appCtx: Context, private val ac
 
     companion object {
         @Volatile private var inst: SipManager? = null
+        /** Para el SIP y olvida el gestor (al desemparejar: si no, sigue registrado con la cuenta borrada). */
+        fun release() { synchronized(this) { inst?.stop(); inst = null } }
         /** Devuelve el gestor; si la cuenta cambió (p. ej. tras re-emparejar), reconstruye con la nueva. */
         fun get(ctx: Context, acc: Account): SipManager {
             val cur = inst

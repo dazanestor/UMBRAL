@@ -1027,6 +1027,7 @@ body.kbd-open #wxres{max-height:90px}
     onKeyPress:function(btn){
       if(btn==='{shift}'||btn==='{lock}'){ layoutName=(layoutName==='default'?'shift':'default'); kb.setOptions({layoutName:layoutName}); }
       else if(btn==='{numbers}'){ layoutName='numbers'; kb.setOptions({layoutName:'numbers'}); }
+      else if(btn==='{sym}'){ layoutName='symbols'; kb.setOptions({layoutName:'symbols'}); }
       else if(btn==='{abc}'){ layoutName='default'; kb.setOptions({layoutName:'default'}); }
       else if(btn==='{close}'){ hide(); }
       else if(btn==='{enter}'){ submit(); }
@@ -1035,9 +1036,11 @@ body.kbd-open #wxres{max-height:90px}
     layout:{
       default:['q w e r t y u i o p','a s d f g h j k l ñ','{shift} z x c v b n m {bksp}','{numbers} {space} {close} {enter}'],
       shift:['Q W E R T Y U I O P','A S D F G H J K L Ñ','{shift} Z X C V B N M {bksp}','{numbers} {space} {close} {enter}'],
-      numbers:['1 2 3 4 5 6 7 8 9 0','- _ . : / @','{abc} {space} {close} {enter}']
+      numbers:['1 2 3 4 5 6 7 8 9 0','- _ . : / @','{sym} {abc} {space} {close} {enter}'],
+      // Simbolos: sin ellos no se pueden escribir claves WiFi ni URLs de camara con parametros (? = & % ...)
+      symbols:['! # $ % & ( ) = ? +','* , ; < > ~ ^ | \\ ¿','[ ] " \' ` € ¡ {bksp}','{numbers} {abc} {space} {close} {enter}']
     },
-    display:{'{bksp}':'⌫','{enter}':'OK','{space}':'espacio','{shift}':'⇧','{numbers}':'123','{abc}':'ABC','{close}':'cerrar'}
+    display:{'{sym}':'#+=','{bksp}':'⌫','{enter}':'OK','{space}':'espacio','{shift}':'⇧','{numbers}':'123','{abc}':'ABC','{close}':'cerrar'}
   });
   function show(){ cont.classList.add('show'); document.body.classList.add('kbd-open'); }
   function hide(){ cont.classList.remove('show'); document.body.classList.remove('kbd-open'); if(activeInput){ try{ activeInput.dispatchEvent(new Event('change',{bubbles:true})); }catch(e){} } activeInput=null; }
@@ -1102,7 +1105,7 @@ body.no-cam #wx-full{display:flex}
     var cur=d.current||{}, h='';
     h+='<div class="wxf-cur"><div class="ic">'+icon(cur.weather_code||0)+'</div>'+
        '<div><div class="t">'+Math.round(cur.temperature_2m)+'°</div><div class="c">'+wtext(cur.weather_code||0)+'</div></div>'+
-       '<div class="meta">'+(d.place||'')+'<br>Sensación '+Math.round(cur.apparent_temperature)+'°<br>Humedad '+Math.round(cur.relative_humidity_2m)+'%<br>Viento '+Math.round(cur.wind_speed_10m)+' km/h</div></div>';
+       '<div class="meta">'+String(d.place||'').replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];})+'<br>Sensación '+Math.round(cur.apparent_temperature)+'°<br>Humedad '+Math.round(cur.relative_humidity_2m)+'%<br>Viento '+Math.round(cur.wind_speed_10m)+' km/h</div></div>';
     // por horas (proximas 12h)
     if(d.hourly&&d.hourly.time){
       var ht=d.hourly.time, now=new Date(cur.time||Date.now()), start=0;
@@ -1266,6 +1269,8 @@ h2.title{font-size:26px}
 <script id="qvadis-real">
 (function(){
   var api=function(p){return fetch(p).then(function(r){return r.json();});};
+  // Texto de fuera (SSID de la WiFi, nombre del equipo...) NUNCA directo a innerHTML
+  var Esc=function(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});};
 
   // 0) Actividad -> resetear salvapantallas
   var lastAct=0;
@@ -1312,7 +1317,7 @@ h2.title{font-size:26px}
     card.innerHTML=R('Servidor (manager)','OK',ok)+
       R('SIP panel', d.sipPanel?'Registrado':'Caído', d.sipPanel?ok:al)+
       R('SIP móvil', d.sipMobile?'Registrado':'Sin móvil', d.sipMobile?ok:mu)+
-      R('WiFi', (d.wifi&&d.wifi.ssid)?(d.wifi.ssid+' · '+d.wifi.signal+' dBm'):'—')+
+      R('WiFi', (d.wifi&&d.wifi.ssid)?(Esc(d.wifi.ssid)+' · '+Esc(d.wifi.signal)+' dBm'):'—')+
       R('CPU · RAM', d.cpu+'% · '+d.memUsedMB+'/'+d.memTotalMB+' MB')+
       R('Almacenamiento', d.disk?(d.disk.freeMB+' MB libres'):'—')+
       R('Encendido', Math.floor(d.uptime/3600)+'h '+Math.floor(d.uptime%3600/60)+'m');
@@ -1321,13 +1326,13 @@ h2.title{font-size:26px}
   // 6) Fecha y dispositivo real (sin orientación)
   function fillDevice(){ api('/api/device').then(function(d){ var cards=document.querySelectorAll('#s-datetime .card'); var info=cards[cards.length-1]; if(!info)return;
     info.innerHTML=
-      '<div class="setrow"><span>Nombre</span><span class="val">'+d.hostname+'</span></div>'+
-      '<div class="setrow"><span>Modelo</span><span class="val">'+d.model+'</span></div>'+
-      '<div class="setrow"><span>Nº serie</span><span class="val">'+d.serial+'</span></div>'+
-      '<div class="setrow"><span>Versión FW</span><span class="val">'+d.fw+'</span></div>'+
-      '<div class="setrow"><span>Kernel</span><span class="val">'+d.kernel+'</span></div>'+
-      '<div class="setrow"><span>IP</span><span class="val">'+d.host+'</span></div>'+
-      '<div class="setrow"><span>Zona horaria</span><span class="val">'+d.timezone+'</span></div>';
+      '<div class="setrow"><span>Nombre</span><span class="val">'+Esc(d.hostname)+'</span></div>'+
+      '<div class="setrow"><span>Modelo</span><span class="val">'+Esc(d.model)+'</span></div>'+
+      '<div class="setrow"><span>Nº serie</span><span class="val">'+Esc(d.serial)+'</span></div>'+
+      '<div class="setrow"><span>Versión FW</span><span class="val">'+Esc(d.fw)+'</span></div>'+
+      '<div class="setrow"><span>Kernel</span><span class="val">'+Esc(d.kernel)+'</span></div>'+
+      '<div class="setrow"><span>IP</span><span class="val">'+Esc(d.host)+'</span></div>'+
+      '<div class="setrow"><span>Zona horaria</span><span class="val">'+Esc(d.timezone)+'</span></div>';
   }); }
 
   // 7) WiFi real (quitar redes falsas y compartir-contraseña)
@@ -1349,7 +1354,7 @@ h2.title{font-size:26px}
     api('/api/calls').then(function(calls){ var pr=document.getElementById('phone-recents'); if(!pr)return;
       if(!calls.length){ pr.innerHTML='<div class="sub" style="padding:14px">Sin llamadas recientes</div>'; return; }
       var OC={sonando:'Sonando…',perdida:'Perdida',atendida:'Atendida',dnd:'No molestar',foto:'Foto'};
-      pr.innerHTML=calls.slice().reverse().map(function(c){ var d=new Date(c.ts),p=function(n){return String(n).padStart(2,'0');}; var when=p(d.getDate())+'/'+p(d.getMonth()+1)+' '+p(d.getHours())+':'+p(d.getMinutes());
+      pr.innerHTML=calls.slice().map(function(c){   /* /api/calls ya devuelve las mas recientes primero (otro reverse() las mostraba al reves) */ var d=new Date(c.ts),p=function(n){return String(n).padStart(2,'0');}; var when=p(d.getDate())+'/'+p(d.getMonth()+1)+' '+p(d.getHours())+':'+p(d.getMinutes());
         var thumb=c.photo?'<img src="/api/snap?f='+encodeURIComponent(c.photo)+'" onclick="viewPhoto(\''+c.photo+'\')" style="width:46px;height:46px;border-radius:8px;object-fit:cover;margin-left:auto;cursor:pointer">':'';
         var nm=c.outcome==='foto'?'Foto':'Puerta';
         return '<div class="row"><span class="av">'+nm[0]+'</span><div><div class="nm">'+nm+'</div><div class="sub">'+when+' · '+(OC[c.outcome]||c.outcome)+'</div></div>'+thumb+'</div>'; }).join('');
@@ -1734,11 +1739,17 @@ h2.title{font-size:26px}
         'Contraseña: '+d.secret+'\n'+
         '(El QR contiene estos datos.)';
       qrShow(uri, d.name+' · '+d.ext, desc);
+      // El QR y la clave van a la vista junto a la puerta: se cierra solo a los 2 min
+      clearTimeout(window.__qrT); window.__qrT=setTimeout(function(){ if(window.closeQR)closeQR(); },120000);
       if(window.fillPhone)setTimeout(window.fillPhone,500);
     }).catch(function(){ btn.disabled=false; btn.textContent='Emparejar'; if(window.toast)toast('Error de red'); });
   });
   window.openQR=function(){ var i=document.getElementById('pair-name'); i.value=''; modal.hidden=false; setTimeout(function(){i.focus();},60); };
-  window.removeMobile=function(ext,name){ fetch('/api/mobiles/remove?ext='+encodeURIComponent(ext)).then(function(){ if(window.toast)toast('Móvil eliminado'); if(window.fillPhone)setTimeout(window.fillPhone,500); }); };
+  window.removeMobile=function(ext,name){
+    var go=function(){ fetch('/api/mobiles/remove?ext='+encodeURIComponent(ext)).then(function(){ if(window.toast)toast('Móvil eliminado'); if(window.fillPhone)setTimeout(window.fillPhone,500); }); };
+    // un toque accidental borraba el móvil (y sus credenciales) sin pedir nada: ahora pide el PIN
+    if(window.pinSet&&typeof requirePin==='function') requirePin(go,'Eliminar móvil','Introduce el PIN para eliminar "'+name+'".'); else go();
+  };
 })();
 </script>
 <script id="qvadis-remote">

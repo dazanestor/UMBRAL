@@ -27,6 +27,7 @@ import es.qvadis.app.model.CallEntry
 import es.qvadis.app.net.ApiClient
 import es.qvadis.app.push.Notifications
 import es.qvadis.app.service.SipService
+import es.qvadis.app.sip.SipManager
 import es.qvadis.app.store.AccountStore
 import es.qvadis.app.store.Prefs
 import okhttp3.Request
@@ -237,7 +238,11 @@ class MainActivity : AppCompatActivity() {
             .setTitle("Desemparejar")
             .setMessage("Se borrarán las credenciales de este móvil. Tendrás que volver a escanear el QR.")
             .setPositiveButton("Desemparejar") { _, _ ->
+                // Parar el SIP y olvidar el certificado: si no, el servicio sigue registrado con la cuenta borrada
+                runCatching { stopService(Intent(this, SipService::class.java)) }
+                SipManager.release()
                 AccountStore.clear(this)
+                Prefs.setCertPem(this, null)
                 Toast.makeText(this, "Desemparejado", Toast.LENGTH_SHORT).show()
                 startActivity(Intent(this, PairActivity::class.java))
                 finishAffinity()
@@ -261,7 +266,8 @@ class MainActivity : AppCompatActivity() {
     private fun requestFullScreenIntentPermission() {
         if (android.os.Build.VERSION.SDK_INT >= 34) {
             val nm = getSystemService(android.app.NotificationManager::class.java)
-            if (nm != null && !nm.canUseFullScreenIntent()) {
+            if (nm != null && !nm.canUseFullScreenIntent() && !Prefs.wasAsked(this, "fsi")) {
+                Prefs.markAsked(this, "fsi")
                 runCatching {
                     startActivity(Intent(
                         android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
@@ -274,7 +280,8 @@ class MainActivity : AppCompatActivity() {
     /** Pide excluir la app de la optimización de batería (para que el servicio no muera). */
     private fun requestBatteryExemption() {
         val pm = getSystemService(android.os.PowerManager::class.java) ?: return
-        if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+        if (!pm.isIgnoringBatteryOptimizations(packageName) && !Prefs.wasAsked(this, "battery")) {
+            Prefs.markAsked(this, "battery")
             runCatching {
                 startActivity(Intent(
                     android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
