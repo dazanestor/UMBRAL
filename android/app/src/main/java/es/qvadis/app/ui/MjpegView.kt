@@ -16,7 +16,7 @@ import java.io.ByteArrayOutputStream
 /**
  * Vista que pinta un stream MJPEG (multipart/x-mixed-replace) de /api/camera/stream.mjpg.
  * Lee los JPEG del stream (delimitados por SOI FFD8 / EOI FFD9) y los dibuja.
- * Usa el OkHttpClient con pinning del ApiClient. Esqueleto funcional; ajusta rendimiento.
+ * Usa el OkHttpClient con pinning del ApiClient. Reconecta solo si se corta.
  */
 class MjpegView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = null) : View(ctx, attrs) {
 
@@ -25,6 +25,7 @@ class MjpegView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = n
     private var worker: Thread? = null
     @Volatile private var response: okhttp3.Response? = null
     private val dst = Rect()
+    private companion object { const val MAX_FRAME = 4 * 1024 * 1024 }
 
     fun start(url: String, client: OkHttpClient) {
         if (running) return
@@ -43,10 +44,24 @@ class MjpegView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = n
     override fun onDetachedFromWindow() { stop(); super.onDetachedFromWindow() }
 
     private fun readLoop(url: String, client: OkHttpClient) {
-        try {
-            val resp = client.newCall(Request.Builder().url(url).build()).execute()
+        var wait = 500L
+        while (running) {
+            val gotFrames = try { streamOnce(url, client) } catch (_: Exception) { false }
+            if (!running) break
+            // reconecta con espera creciente (0,5 s -> 5 s); si hubo imagen, vuelve a empezar
+            if (gotFrames) wait = 500L
+            try { Thread.sleep(wait) } catch (_: InterruptedException) { break }
+            wait = minOf(wait * 2, 5000L)
+        }
+    }
+
+    /** Una conexión al stream. Devuelve true si llegó al menos un frame. */
+    private fun streamOnce(url: String, client: OkHttpClient): Boolean {
+        var any = false
+        client.newCall(Request.Builder().url(url).build()).execute().use { resp ->
+            if (!resp.isSuccessful) return false          // 401/403/5xx: no es un stream
             response = resp
-            val input = BufferedInputStream(resp.body?.byteStream() ?: return, 32 * 1024)
+            val input = BufferedInputStream(resp.body?.byteStream() ?: return false, 32 * 1024)
             val buf = ByteArrayOutputStream(64 * 1024)
             var prev = -1
             var inJpeg = false
@@ -59,22 +74,21 @@ class MjpegView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = n
                     }
                 } else {
                     buf.write(b)
-                    if (prev == 0xFF && b == 0xD9) {          // EOI -> frame completo
+                    if (buf.size() > MAX_FRAME) { inJpeg = false; buf.reset() }   // corrupto: descarta
+                    else if (prev == 0xFF && b == 0xD9) {      // EOI -> frame completo
                         inJpeg = false
                         val bytes = buf.toByteArray()
                         BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.let {
                             // NO reciclar el frame anterior aquí: onDraw (hilo UI) podría estar usándolo
-                            // (crash "recycled bitmap"). Se deja al GC. Solo intercambiamos la referencia.
-                            frame = it; postInvalidate()
+                            frame = it; any = true; postInvalidate()
                         }
                     }
                 }
                 prev = b
             }
-            resp.close()
-        } catch (_: Exception) {
-            // conexión caída / stop(): se ignora; la UI puede reintentar con start()
         }
+        response = null
+        return any
     }
 
     override fun onDraw(canvas: Canvas) {

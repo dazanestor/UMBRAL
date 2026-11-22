@@ -32,11 +32,15 @@ class QuickOpenActivity : AppCompatActivity() {
         val bm = BiometricManager.from(this)
         val strongOrCred = BIOMETRIC_STRONG or DEVICE_CREDENTIAL
 
+        // Con CryptoObject: API 30+ admite biometría fuerte o PIN; antes solo biometría fuerte.
+        val api30 = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R
         when {
-            bm.canAuthenticate(strongOrCred) == BiometricManager.BIOMETRIC_SUCCESS ->
-                authenticate(strongOrCred, false) { openDoor(api) }
+            api30 && bm.canAuthenticate(strongOrCred) == BiometricManager.BIOMETRIC_SUCCESS ->
+                authenticate(strongOrCred, false, DoorKey.cryptoObject()) { openDoor(api) }
             bm.canAuthenticate(BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS ->
-                authenticate(BIOMETRIC_STRONG, true) { openDoor(api) }
+                authenticate(BIOMETRIC_STRONG, true, DoorKey.cryptoObject()) { openDoor(api) }
+            bm.canAuthenticate(strongOrCred) == BiometricManager.BIOMETRIC_SUCCESS ->   // <30 solo con PIN
+                authenticate(strongOrCred, false, null) { openDoor(api) }
             else ->   // sin huella ni bloqueo configurado: confirmación simple
                 AlertDialog.Builder(this)
                     .setTitle("Abrir puerta")
@@ -48,10 +52,18 @@ class QuickOpenActivity : AppCompatActivity() {
         }
     }
 
-    private fun authenticate(authenticators: Int, withNegative: Boolean, onOk: () -> Unit) {
+    private fun authenticate(authenticators: Int, withNegative: Boolean,
+                             crypto: BiometricPrompt.CryptoObject?, onOk: () -> Unit) {
         val exec = androidx.core.content.ContextCompat.getMainExecutor(this)
         val prompt = BiometricPrompt(this, exec, object : BiometricPrompt.AuthenticationCallback() {
-            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) { onOk() }
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                // con CryptoObject, el éxito solo vale si el Keystore desbloqueó la clave
+                if (crypto != null && !DoorKey.verify(result.cryptoObject)) {
+                    Toast.makeText(this@QuickOpenActivity, R.string.door_error, Toast.LENGTH_SHORT).show()
+                    finish(); return
+                }
+                onOk()
+            }
             override fun onAuthenticationError(code: Int, msg: CharSequence) {
                 if (code != BiometricPrompt.ERROR_USER_CANCELED && code != BiometricPrompt.ERROR_NEGATIVE_BUTTON)
                     Toast.makeText(this@QuickOpenActivity, msg, Toast.LENGTH_SHORT).show()
@@ -64,7 +76,7 @@ class QuickOpenActivity : AppCompatActivity() {
             .setSubtitle("Confirma tu identidad para abrir")
             .setAllowedAuthenticators(authenticators)
         if (withNegative) b.setNegativeButtonText("Cancelar")   // obligatorio sin DEVICE_CREDENTIAL
-        prompt.authenticate(b.build())
+        if (crypto != null) prompt.authenticate(b.build(), crypto) else prompt.authenticate(b.build())
     }
 
     private fun openDoor(api: ApiClient) {

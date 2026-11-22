@@ -114,11 +114,21 @@ const REMOTE_PATHS = ['/api/health', '/api/door/open', '/api/camera/stream.mjpg'
 let CERT_FP = '';
 try { CERT_FP = new crypto.X509Certificate(fs.readFileSync('/var/lib/qvadis/certs/qvadis.crt')).fingerprint256; } catch (e) {}
 function validToken(t) { return !!t && (CFG.mobiles || []).some((m) => m.token && m.token === t); }
+// Token del móvil: en el listener remoto SOLO por cabecera Authorization (no en la URL, que acaba
+// en logs/proxies/cachés). En el listener local (127.0.0.1, kiosco) se acepta también ?token=.
+function reqToken(u, req, remote) {
+  const h = String(req.headers['authorization'] || '');
+  const m = /^Bearer\s+(.+)$/i.exec(h);
+  if (m) return m[1].trim();
+  return remote ? '' : (u.searchParams.get('token') || '');
+}
+// Endpoints remotos que cambian estado: solo POST (un GET se dispara con un simple enlace).
+const REMOTE_POST_ONLY = ['/api/door/open', '/api/audio/set', '/api/ringtone/set', '/api/dnd/set', '/api/calls/ack', '/api/mobiles/fcm'];
 function remoteOk(u, req) {
   if (!REMOTE_PATHS.includes(u.pathname)) return false;
+  if (REMOTE_POST_ONLY.includes(u.pathname) && req.method !== 'POST') return false;
   if (u.pathname === '/api/health') return true;
-  const t = u.searchParams.get('token') || (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
-  return validToken(t);
+  return validToken(reqToken(u, req, true));
 }
 // --- Push FCM (avisar a la app cuando suena el timbre, con el móvil dormido/fuera) ---
 // La cuenta de servicio de Firebase se coloca en este fichero (no se teclea; la aporta el admin).
@@ -558,7 +568,7 @@ function pinCheck(p) {
   return false;
 }
 function mobileByToken(u, req) {
-  const t = u.searchParams.get('token') || (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
+  const t = reqToken(u, req, !!(req.socket && req.socket.encrypted));
   return (CFG.mobiles || []).find((m) => m.token && m.token === t);
 }
 
@@ -967,7 +977,7 @@ function handler(req, res, remote) {
   }
   if (u.pathname === '/api/mobiles/fcm') {
     // La app registra su token FCM; se autentica con su token de móvil
-    const tok = u.searchParams.get('token') || (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
+    const tok = reqToken(u, req, !!(req.socket && req.socket.encrypted));
     const m = (CFG.mobiles || []).find((x) => x.token && x.token === tok);
     if (!m) return J({ ok: false, err: 'auth' });
     m.fcm = (u.searchParams.get('fcm') || '').slice(0, 400);

@@ -4,23 +4,32 @@ import es.qvadis.app.model.Account
 import es.qvadis.app.model.CallEntry
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
 
 /** Cliente HTTPS (con pinning) para abrir puerta, cámara, registrar FCM, etc. */
 class ApiClient(private val acc: Account) {
-    val http: OkHttpClient = CertPinning.client(acc.fingerprintSha256)
+    /** El token viaja en la cabecera Authorization (no en la URL: no queda en logs ni cachés). */
+    val http: OkHttpClient = CertPinning.client(acc.fingerprintSha256).newBuilder()
+        .addInterceptor { c ->
+            c.proceed(c.request().newBuilder().header("Authorization", "Bearer ${acc.token}").build())
+        }.build()
     val fingerprint: String get() = acc.fingerprintSha256
 
     private fun enc(s: String): String = java.net.URLEncoder.encode(s, "UTF-8")
 
+    /** Las acciones que cambian estado van por POST (un GET se puede disparar con un simple enlace). */
+    private fun post(path: String, extra: String = ""): Request =
+        Request.Builder().url(url(path, extra)).post(ByteArray(0).toRequestBody()).build()
+
     private fun url(path: String, extra: String = ""): String =
-        "${acc.httpsBase()}$path?token=${enc(acc.token)}$extra"
+        "${acc.httpsBase()}$path?${extra.removePrefix("&")}"
 
     /** Abre la puerta (which = front|aux). */
     @Throws(IOException::class)
     fun openDoor(which: String = "front"): Boolean {
-        val req = Request.Builder().url(url("/api/door/open", "&which=$which")).build()
+        val req = post("/api/door/open", "&which=${enc(which)}")
         http.newCall(req).execute().use { return it.isSuccessful }
     }
 
@@ -33,7 +42,7 @@ class ApiClient(private val acc: Account) {
 
     /** Avisa a la placa de que este móvil atendió/abrió (cancela el aviso de perdida). */
     fun ackCall(): Boolean {
-        val req = Request.Builder().url(url("/api/calls/ack")).build()
+        val req = post("/api/calls/ack")
         return runCatching { http.newCall(req).execute().use { it.isSuccessful } }.getOrDefault(false)
     }
 
@@ -46,7 +55,7 @@ class ApiClient(private val acc: Account) {
     /** Registra el token FCM de este dispositivo en la placa. */
     @Throws(IOException::class)
     fun registerFcm(fcmToken: String): Boolean {
-        val req = Request.Builder().url(url("/api/mobiles/fcm", "&fcm=${enc(fcmToken)}")).build()
+        val req = post("/api/mobiles/fcm", "&fcm=${enc(fcmToken)}")
         http.newCall(req).execute().use { return it.isSuccessful }
     }
 
@@ -67,7 +76,7 @@ class ApiClient(private val acc: Account) {
         http.newCall(req).execute().use { return it.body?.string().orEmpty() }
     }
     private fun hit(path: String, extra: String): Boolean {
-        val req = Request.Builder().url(url(path, extra)).build()
+        val req = post(path, extra)
         return runCatching { http.newCall(req).execute().use { it.isSuccessful } }.getOrDefault(false)
     }
 

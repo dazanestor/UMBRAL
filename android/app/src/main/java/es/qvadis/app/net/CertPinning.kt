@@ -13,8 +13,11 @@ import javax.net.ssl.*
 object CertPinning {
 
     /** "AA:BB:.." o "aabb.." -> bytes. */
-    private fun parseFp(fp: String): ByteArray =
-        fp.replace(":", "").replace(" ", "").chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+    private fun parseFp(fp: String): ByteArray? {
+        val h = fp.replace(":", "").replace(" ", "")
+        if (!Regex("[0-9a-fA-F]{64}").matches(h)) return null   // sin huella válida NO se confía en nada
+        return h.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+    }
 
     private fun sha256(cert: X509Certificate): ByteArray =
         MessageDigest.getInstance("SHA-256").digest(cert.encoded)
@@ -26,15 +29,19 @@ object CertPinning {
             override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
             override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {
                 val leaf = chain.firstOrNull() ?: throw SSLException("sin certificado")
-                if (!MessageDigest.isEqual(sha256(leaf), want)) throw SSLException("huella no coincide (pinning)")
+                if (want == null || !MessageDigest.isEqual(sha256(leaf), want)) throw SSLException("huella no coincide (pinning)")
             }
             override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
         }
         val ctx = SSLContext.getInstance("TLS").apply { init(null, arrayOf<TrustManager>(tm), null) }
         return OkHttpClient.Builder()
             .sslSocketFactory(ctx.socketFactory, tm)
-            // el cert es autofirmado -> el hostname no se valida; la seguridad la da el pinning
-            .hostnameVerifier { _, _ -> true }
+            // cert autofirmado: el nombre no cuenta; vale solo si el cert de la sesión es el anclado
+            .hostnameVerifier { _, session ->
+                want != null && runCatching {
+                    MessageDigest.isEqual(sha256(session.peerCertificates[0] as X509Certificate), want)
+                }.getOrDefault(false)
+            }
             .build()
     }
 }
