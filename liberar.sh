@@ -25,6 +25,7 @@
 #   SPARE=/dev/...  particion destino (por defecto, la "otra" de ~3,5G)
 #   SKIP_BACKUP=1   omite el recordatorio de backup (NO recomendado)
 #   ASSUME_YES=1    no pide confirmaciones (pruebas)      NO_REBOOT=1  no reinicia
+#   SKIP_CRON_OFF=1 no anula los crons de reinicio/vigilancia del stock antes de empezar
 #   DISK= BOOT= RUNPART=   solo para pruebas en discos simulados
 set -euo pipefail
 say(){ printf '\033[1;36m[liberar]\033[0m %s\n' "$*"; }
@@ -122,6 +123,19 @@ if [ "${SKIP_BACKUP:-0}" != 1 ]; then
   confirm "¿Tienes ya el backup completo y quieres continuar?" || die "cancelado (haz el backup)"
 fi
 confirm "Ultima confirmacion: liberar e instalar RPi OS en $SPARE" || die "cancelado"
+
+# --------- 2b) anular los crons del stock que reinician la placa ---------
+# El stock reinicia o relanza la GUI desde cron (watchdog_pulse/_server/_gui, reboot programado) y esta
+# operacion dura minutos: un reinicio a mitad de la escritura dejaria la pantalla a medias. Es reversible
+# (los mueve a /home/root/qvadis-cron-backup); scripts/anular-crons-stock.sh --restaurar los devuelve.
+if [ "${SKIP_CRON_OFF:-0}" != 1 ]; then
+  if [ -f "$HERE/scripts/anular-crons-stock.sh" ]; then
+    say "anulando los crons de reinicio del stock (reversible)..."
+    bash "$HERE/scripts/anular-crons-stock.sh" || err "no pude anular los crons del stock; sigo, pero la placa podria reiniciarse durante la liberacion"
+  else
+    err "no encuentro scripts/anular-crons-stock.sh: los crons del stock siguen activos (copia el repo COMPLETO)"
+  fi
+fi
 
 # --------- 3) rootfs -> particion destino (streaming, sin imagen intermedia) ---------
 say "formateando $SPARE e instalando la rootfs (tar en streaming, conserva symlinks y propietarios)..."
