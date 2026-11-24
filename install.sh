@@ -44,7 +44,7 @@ say "Raiz actual: $ROOTPUUID (prefijo $PFX)"
 PKGS="nodejs cog libwpewebkit-2.0-1 libgles2 libegl1 libgbm1 mesa-libgallium fontconfig fonts-inter \
 asterisk baresip alsa-utils pigpio ffmpeg iw rfkill rsync curl openssl python3 wpasupplicant fail2ban nftables \
 pulseaudio pulseaudio-utils libwebrtc-audio-processing-1-3 \
-plymouth plymouth-themes baresip-x11 rtkit asterisk-core-sounds-es-gsm"
+plymouth baresip-x11 rtkit asterisk-core-sounds-es-gsm"
 say "instalando dependencias (apt)..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
@@ -66,16 +66,39 @@ apt-get install -y --no-install-recommends "${APT_OPTS[@]}" $PKGS || {
   apt-get install -y --no-install-recommends --fix-missing "${APT_OPTS[@]}" $PKGS || { err "fallo apt; revisa red/espacio"; exit 1; }
 }
 
+# ---------- 1b) limpieza: paquetes que esta placa no usa y cache de apt (siempre, tambien al re-ejecutar) ----------
+# Va ANTES del clon A/B para que el slot B salga ya limpio. Medido en una pantalla real (2026-11-24):
+#  - firmware de otras marcas de WiFi/BT (~250 MB): el adaptador es un rtl8723bu (firmware-realtek) y el CM3+ no tiene WiFi propio
+#  - compilador y cabeceras del kernel de la imagen base (~150 MB): nada de Qvadis compila (todo viene de apt)
+#  - rpi-eeprom: el CM3+ arranca por bootcode.bin, no tiene EEPROM
+#  - plymouth-themes/-label: el tema de arranque es propio (umbral)
+say "limpieza: paquetes sin uso y cache de apt..."
+if ls /lib/firmware/rtlwifi/rtl8723bu_nic.bin* >/dev/null 2>&1; then
+  JUNK="firmware-atheros firmware-mediatek firmware-libertas firmware-brcm80211 rpi-eeprom plymouth-themes plymouth-label build-essential g++ gcc cpp make dpkg-dev"
+  JUNK="$JUNK $(dpkg -l 'linux-headers-*' 'gcc-1*' 'g++-1*' 'cpp-1*' 2>/dev/null | awk '/^ii/ && $2 !~ /-base(:|$)/ {print $2}' | tr '\n' ' ')"  # los *-base los exige libgcc-s1
+  RM=""; for p in $JUNK; do dpkg -s "$p" >/dev/null 2>&1 && RM="$RM $p"; done
+  # shellcheck disable=SC2086
+  [ -z "$RM" ] || { say "purgando:$RM"; apt-get purge -y $RM || err "no pude purgar algun paquete sobrante (sigo)"; }
+else
+  say "AVISO: no veo el firmware del rtl8723bu: NO purgo firmware (por seguridad)"
+fi
+apt-get autoremove --purge -y || true
+apt-get clean || true
+rm -rf /var/lib/apt/lists/* 2>/dev/null || true
+
 # ---------- 2) ficheros (deploy -> /) ----------
 say "copiando ficheros del sistema (deploy/)..."
 # opt, usr, var, root, y etc SIN pisar los secretos reales que ya pudiera haber
-rsync -aHAX "$DEPLOY/opt/"  /opt/
-rsync -aHAX "$DEPLOY/usr/"  /usr/
+# --chown=root:root es OBLIGATORIO: sin el, rsync -a copia el propietario del arbol de origen; si el repo se clono o
+# copio como el usuario pi, /etc, /usr, /etc/sudoers.d y /etc/systemd/system quedaban propiedad de pi (sudo se
+# negaba a funcionar y pi podia editar scripts que corren como root). Visto en una pantalla real (2026-11-24).
+rsync -aHAX --chown=root:root "$DEPLOY/opt/"  /opt/
+rsync -aHAX --chown=root:root "$DEPLOY/usr/"  /usr/
 # el estado del usuario (config.json, calls.json) nunca viaja en deploy/
-rsync -aHAX --exclude=/lib/qvadis/config.json --exclude=/lib/qvadis/calls.json "$DEPLOY/var/" /var/
+rsync -aHAX --chown=root:root --exclude=/lib/qvadis/config.json --exclude=/lib/qvadis/calls.json "$DEPLOY/var/" /var/
 # Secretos/estado: NO se pisan si ya estan configurados (volver a ejecutar install.sh no debe romper SIP ni WiFi)
-rsync -aHAX --exclude=/.baresip/accounts "$DEPLOY/root/" /root/
-rsync -aHAX --exclude=/asterisk/pjsip.conf --exclude=/wpa_supplicant/wpa_supplicant-wlan0.conf "$DEPLOY/etc/" /etc/
+rsync -aHAX --chown=root:root --exclude=/.baresip/accounts "$DEPLOY/root/" /root/
+rsync -aHAX --chown=root:root --exclude=/asterisk/pjsip.conf --exclude=/wpa_supplicant/wpa_supplicant-wlan0.conf "$DEPLOY/etc/" /etc/
 [ -e /root/.baresip/accounts ] || install -D -m0600 "$DEPLOY/root/.baresip/accounts" /root/.baresip/accounts
 [ -e /etc/wpa_supplicant/wpa_supplicant-wlan0.conf ] || install -D -m0600 "$DEPLOY/etc/wpa_supplicant/wpa_supplicant-wlan0.conf" /etc/wpa_supplicant/wpa_supplicant-wlan0.conf
 # pjsip.conf: el del paquete Asterisk NO es el nuestro; el nuestro lleva la marca "; Qvadis - PJSIP"
