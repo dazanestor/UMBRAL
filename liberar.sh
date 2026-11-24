@@ -24,7 +24,7 @@
 #   SSH_PUBKEY=...  clave publica (texto o ruta a .pub) para entrar por SSH sin contrasena (opcional)
 #   SPARE=/dev/...  particion destino (por defecto, la "otra" de ~3,5G)
 #   SKIP_BACKUP=1   omite el recordatorio de backup (NO recomendado)
-#   ASSUME_YES=1    no pide confirmaciones (pruebas)      NO_REBOOT=1  no apaga/reinicia
+#   ASSUME_YES=1    no pide confirmaciones (pruebas)      NO_REBOOT=1  no reinicia
 #   SKIP_CRON_OFF=1 no anula los crons de reinicio/vigilancia del stock antes de empezar
 #   DISK= BOOT= RUNPART=   solo para pruebas en discos simulados
 set -euo pipefail
@@ -234,6 +234,42 @@ ln -sf /etc/systemd/system/qvadis-rfkill-unblock.service "$W/multi-user.target.w
 # justo antes de arrancar wpa_supplicant@wlan0, que ya espera a que exista la interfaz.
 mkdir -p "$W/wpa_supplicant@wlan0.service.d"
 printf '[Service]\nExecStartPre=-/usr/sbin/rfkill unblock wifi\n' > "$W/wpa_supplicant@wlan0.service.d/10-qvadis-rfkill.conf"
+# NetworkManager (aunque wlan0 este "unmanaged") restaura su fichero de estado: la imagen trae WirelessEnabled=false
+# y a los ~14 s del arranque vuelve a bloquear la radio por rfkill, deshaciendo cualquier desbloqueo anterior.
+mkdir -p "$D/var/lib/NetworkManager"
+printf '[main]\nNetworkingEnabled=true\nWirelessEnabled=true\nWWANEnabled=true\n' > "$D/var/lib/NetworkManager/NetworkManager.state"
+# Si el bus USB se reinicia (el adaptador reenumera), wpa_supplicant@wlan0 se para (esta atado a la interfaz) y
+# nadie lo arrancaba de nuevo: cada vez que aparece wlan0 se pide su arranque (visto en la pantalla real).
+mkdir -p "$D/etc/udev/rules.d"
+printf '%s\n' 'SUBSYSTEM=="net", ACTION=="add", KERNEL=="wlan0", TAG+="systemd", ENV{SYSTEMD_WANTS}+="wpa_supplicant@wlan0.service"' > "$D/etc/udev/rules.d/90-qvadis-wlan.rules"
+# DOBLE REINICIO: tras el salto stock -> RPi OS con un reinicio en caliente, el hub USB puede no enumerar (sin WiFi
+# ni audio; medido en una pantalla real: HPRT0=0x00001c00). Un reinicio en caliente DESDE RPi OS si lo respeta.
+# Solo en el primer arranque, una vez: si a los 40 s no hay ningun dispositivo USB, reinicia.
+mkdir -p "$D/usr/local/sbin"
+cat > "$D/usr/local/sbin/qvadis-primer-reinicio" <<'QVEOF'
+#!/bin/sh
+# Primer arranque tras liberar.sh: si el hub USB no ha enumerado, reinicia UNA vez.
+F=/var/lib/qvadis-primer-reinicio
+[ -e "$F" ] || exit 0
+rm -f "$F"; sync
+for i in $(seq 1 40); do ls /sys/bus/usb/devices/1-1 >/dev/null 2>&1 && exit 0; sleep 1; done
+logger -t qvadis-primer-reinicio "sin USB tras 40 s: reinicio unico"
+systemctl reboot
+QVEOF
+chmod 755 "$D/usr/local/sbin/qvadis-primer-reinicio"
+touch "$D/var/lib/qvadis-primer-reinicio"
+cat > "$W/qvadis-primer-reinicio.service" <<'QVEOF'
+[Unit]
+Description=Reinicio unico si el hub USB no enumera tras liberar.sh
+After=multi-user.target
+ConditionPathExists=/var/lib/qvadis-primer-reinicio
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/qvadis-primer-reinicio
+[Install]
+WantedBy=multi-user.target
+QVEOF
+ln -sf /etc/systemd/system/qvadis-primer-reinicio.service "$W/multi-user.target.wants/qvadis-primer-reinicio.service"
 if [ -n "$WIFI_SSID" ]; then
   mkdir -p "$D/etc/wpa_supplicant"
   # La clave se guarda como hash (PSK de 64 hex) calculado con el wpa_passphrase de la propia rootfs
@@ -293,8 +329,8 @@ sync
 USED=$(du -sm "$BOOT" | cut -f1); say "uso de $BOOT: ${USED} MB (limite ~64)"
 
 say "LISTO. cmdline -> root=PARTUUID=$SPUUID"
-say "IMPORTANTE: reinicia CORTANDO LA ALIMENTACION (10 s sin corriente). Un reinicio en caliente desde el stock deja"
-say "el hub USB sin enumerar (sin WiFi ni audio) hasta quitar la corriente (medido en una pantalla real, 2026-11-24)."
+say "Nota: el primer arranque de RPi OS puede reiniciarse solo UNA vez (si el hub USB no enumera tras el salto desde el"
+say "stock). Si pasados 3 minutos sigue sin red, quita la alimentacion 10 s y vuelve a conectarla."
 say "Tras arrancar, RPi OS Lite (tarda ~1 min en dar red). Para entrar:"
 say "    usuario:     pi"
 say "    contraseña:  la que acabas de introducir (NO se guarda en ningun sitio: apuntala)"
@@ -302,4 +338,4 @@ say "    direccion:   ssh pi@raspberrypi.local   (si tu PC resuelve .local) o la
 [ -n "$SSHKEY" ] && say "    (tambien entra con la clave SSH publica que has indicado)"
 say "Despues copia el repo y ejecuta install.sh."
 if [ "${NO_REBOOT:-0}" = 1 ]; then exit 0; fi
-if confirm "Apagar ahora (despues quita la alimentacion 10 s y vuelve a conectarla)"; then sync; poweroff -f; else say "Apaga con: sync; poweroff -f (el inittab del stock puede colgar en un apagado limpio) y corta la corriente 10 s"; fi
+if confirm "Reiniciar ahora"; then sync; reboot -f; else say "Reinicia con: reboot -f (el inittab del stock puede colgar en reboot limpio)"; fi
