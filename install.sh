@@ -58,7 +58,13 @@ if [ "$(uname -m)" = armv7l ] && uname -r | grep -q -- '-rpi-v7$'; then
 fi
 
 # shellcheck disable=SC2086
-apt-get install -y --no-install-recommends $PKGS || { err "fallo apt; revisa red/espacio"; exit 1; }
+# Los mirrors de raspbian fallan a ratos (un .deb inalcanzable aborta todo): reintentos y, si aun asi falta alguno,
+# se repite actualizando listas y con --fix-missing (los ya descargados se reutilizan).
+APT_OPTS=(-o Acquire::Retries=5 -o Acquire::http::Timeout=30)
+apt-get install -y --no-install-recommends "${APT_OPTS[@]}" $PKGS || {
+  say "apt fallo: reintento con listas nuevas y --fix-missing..."; apt-get update -y "${APT_OPTS[@]}" || true
+  apt-get install -y --no-install-recommends --fix-missing "${APT_OPTS[@]}" $PKGS || { err "fallo apt; revisa red/espacio"; exit 1; }
+}
 
 # ---------- 2) ficheros (deploy -> /) ----------
 say "copiando ficheros del sistema (deploy/)..."
