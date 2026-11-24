@@ -24,7 +24,7 @@
 #   SSH_PUBKEY=...  clave publica (texto o ruta a .pub) para entrar por SSH sin contrasena (opcional)
 #   SPARE=/dev/...  particion destino (por defecto, la "otra" de ~3,5G)
 #   SKIP_BACKUP=1   omite el recordatorio de backup (NO recomendado)
-#   ASSUME_YES=1    no pide confirmaciones (pruebas)      NO_REBOOT=1  no reinicia
+#   ASSUME_YES=1    no pide confirmaciones (pruebas)      NO_REBOOT=1  no apaga/reinicia
 #   SKIP_CRON_OFF=1 no anula los crons de reinicio/vigilancia del stock antes de empezar
 #   DISK= BOOT= RUNPART=   solo para pruebas en discos simulados
 set -euo pipefail
@@ -142,10 +142,22 @@ say "formateando $SPARE e instalando la rootfs (tar en streaming, conserva symli
 mkfs.ext4 -F -L rootfs "$SPARE" >/dev/null
 mkdir -p "$WORK/dst"; mount "$SPARE" "$WORK/dst"
 D="$WORK/dst"
-TAROPTS=(-xpf - --numeric-owner -C "$D")
-tar --help 2>&1 | grep -q -- '--xattrs' && TAROPTS+=(--xattrs)
-tar --help 2>&1 | grep -q -- '--acls'   && TAROPTS+=(--acls)
-tar -xOf "$BUNDLE" rootfs.tar.xz | xz -dc | tar "${TAROPTS[@]}"
+TARH="$(tar --help 2>&1 || true)"
+if printf '%s' "$TARH" | grep -q -- '--numeric-owner'; then
+  # tar GNU
+  TAROPTS=(-xpf - --numeric-owner -C "$D")
+  printf '%s' "$TARH" | grep -q -- '--xattrs' && TAROPTS+=(--xattrs)
+  printf '%s' "$TARH" | grep -q -- '--acls'   && TAROPTS+=(--acls)
+  tar -xOf "$BUNDLE" rootfs.tar.xz | xz -dc | tar "${TAROPTS[@]}"
+else
+  # tar de busybox (el stock real): no tiene --numeric-owner y resolveria los nombres de propietario
+  # con el /etc/passwd del STOCK (uids distintos a Debian). Se extrae en un espacio de montaje propio
+  # con passwd/group vacios (solo para ese proceso) para que use los uid/gid numericos del paquete.
+  command -v unshare >/dev/null || die "tar de busybox y sin 'unshare': no puedo extraer con propietarios correctos"
+  : > "$WORK/vacio"
+  tar -xOf "$BUNDLE" rootfs.tar.xz | xz -dc | unshare -m sh -c \
+    'mount --bind "$1" /etc/passwd && mount --bind "$1" /etc/group && exec tar -xpf - -C "$2"' sh "$WORK/vacio" "$D"
+fi
 # verificacion (leccion del merged-usr: /lib DEBE ser un symlink a usr/lib)
 [ -L "$D/lib" ] && [ -x "$D/usr/bin/bash" ] && [ -f "$D/etc/passwd" ] && [ -d "$D/boot/firmware" ] \
   || die "la rootfs extraida no es valida (¿/lib symlink?). NO he tocado el arranque."
@@ -217,6 +229,11 @@ ExecStart=-/usr/sbin/rfkill unblock wifi
 WantedBy=multi-user.target
 EOF
 ln -sf /etc/systemd/system/qvadis-rfkill-unblock.service "$W/multi-user.target.wants/qvadis-rfkill-unblock.service"
+# La unidad anterior corre al principio del arranque, ANTES de que enumere el adaptador USB: el phy nace
+# bloqueado despues y nadie lo desbloquea (visto en la pantalla real: "WLAN soft blocked"). Se desbloquea
+# justo antes de arrancar wpa_supplicant@wlan0, que ya espera a que exista la interfaz.
+mkdir -p "$W/wpa_supplicant@wlan0.service.d"
+printf '[Service]\nExecStartPre=-/usr/sbin/rfkill unblock wifi\n' > "$W/wpa_supplicant@wlan0.service.d/10-qvadis-rfkill.conf"
 if [ -n "$WIFI_SSID" ]; then
   mkdir -p "$D/etc/wpa_supplicant"
   # La clave se guarda como hash (PSK de 64 hex) calculado con el wpa_passphrase de la propia rootfs
@@ -276,11 +293,13 @@ sync
 USED=$(du -sm "$BOOT" | cut -f1); say "uso de $BOOT: ${USED} MB (limite ~64)"
 
 say "LISTO. cmdline -> root=PARTUUID=$SPUUID"
-say "Tras reiniciar arrancara RPi OS Lite (tarda ~1 min en dar red). Para entrar:"
+say "IMPORTANTE: reinicia CORTANDO LA ALIMENTACION (10 s sin corriente). Un reinicio en caliente desde el stock deja"
+say "el hub USB sin enumerar (sin WiFi ni audio) hasta quitar la corriente (medido en una pantalla real, 2026-11-24)."
+say "Tras arrancar, RPi OS Lite (tarda ~1 min en dar red). Para entrar:"
 say "    usuario:     pi"
 say "    contraseña:  la que acabas de introducir (NO se guarda en ningun sitio: apuntala)"
 say "    direccion:   ssh pi@raspberrypi.local   (si tu PC resuelve .local) o la IP que el router asigne a 'raspberrypi'"
 [ -n "$SSHKEY" ] && say "    (tambien entra con la clave SSH publica que has indicado)"
 say "Despues copia el repo y ejecuta install.sh."
 if [ "${NO_REBOOT:-0}" = 1 ]; then exit 0; fi
-if confirm "Reiniciar ahora"; then sync; reboot -f; else say "Reinicia con: reboot -f (el inittab del stock puede colgar en reboot limpio)"; fi
+if confirm "Apagar ahora (despues quita la alimentacion 10 s y vuelve a conectarla)"; then sync; poweroff -f; else say "Apaga con: sync; poweroff -f (el inittab del stock puede colgar en un apagado limpio) y corta la corriente 10 s"; fi
