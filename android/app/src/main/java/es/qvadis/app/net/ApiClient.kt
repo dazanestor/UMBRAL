@@ -52,10 +52,13 @@ class ApiClient(private val acc: Account) {
     /** URL de una foto de llamadas recientes. */
     fun snapUrl(file: String): String = url("/api/snap", "&f=${enc(file)}")
 
-    /** Registra el token FCM de este dispositivo en la placa. */
+    /** Registra el token FCM de este dispositivo en la placa. En el cuerpo del POST, no en la
+     *  URL: a diferencia del resto de "extras" (which, volumen...), este token identifica al
+     *  dispositivo y permite empujarle notificaciones, así que no debe quedar en ningún log. */
     @Throws(IOException::class)
     fun registerFcm(fcmToken: String): Boolean {
-        val req = post("/api/mobiles/fcm", "&fcm=${enc(fcmToken)}")
+        val req = Request.Builder().url(url("/api/mobiles/fcm"))
+            .post(fcmToken.toRequestBody()).build()
         http.newCall(req).execute().use { return it.isSuccessful }
     }
 

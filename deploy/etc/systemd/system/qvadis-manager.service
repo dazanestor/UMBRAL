@@ -5,6 +5,9 @@ Wants=pigpiod.service
 
 [Service]
 ExecStart=/usr/bin/node /opt/qvadis-ui/manager.js
+# Reload en caliente (sudoers permite 'systemctl reload'): SIGUSR1 relee config.json y reaplica
+# volumen/brillo/moviles/AEC sin reiniciar el proceso (no toca puertas ni llamadas en curso).
+ExecReload=/bin/kill -USR1 $MAINPID
 WorkingDirectory=/opt/qvadis-ui
 Restart=on-failure
 RestartSec=2

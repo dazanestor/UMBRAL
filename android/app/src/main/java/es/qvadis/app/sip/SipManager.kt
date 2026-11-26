@@ -116,10 +116,10 @@ class SipManager private constructor(private val appCtx: Context, private val ac
             runCatching { core.verifyServerCertificates(true) }
             runCatching { core.verifyServerCn(false) }   // CN del cert != dominio
         } else {
-            // Sin cert anclado NO se desactiva la verificación: el registro falla (cerrado)
-            // en vez de exponer la contraseña SIP a un intermediario. Re-emparejar lo repara.
+            // Sin cert anclado NO se desactiva ninguna verificación (ni CA ni CN): el registro
+            // falla (cerrado) en vez de exponer la contraseña SIP a un intermediario con
+            // cualquier CA válida para otro dominio. Re-emparejar lo repara.
             runCatching { core.verifyServerCertificates(true) }
-            runCatching { core.verifyServerCn(false) }
         }
 
         // Cuenta SIP (TLS)
@@ -267,6 +267,7 @@ class SipManager private constructor(private val appCtx: Context, private val ac
 
     /** Atiende (audio-only) + manos libres. Si el INVITE aún no ha llegado, se acepta al llegar. */
     fun answer() = h.post {
+        if (!built) { pendingAnswer = true; return@post }
         val call = core.currentCall ?: core.calls.firstOrNull()
         if (call == null) {
             pendingAnswer = true
@@ -289,9 +290,12 @@ class SipManager private constructor(private val appCtx: Context, private val ac
         }
     }
 
-    fun hangup() = h.post { pendingAnswer = false; (core.currentCall ?: core.calls.firstOrNull())?.terminate() }
+    fun hangup() = h.post {
+        pendingAnswer = false
+        if (built) (core.currentCall ?: core.calls.firstOrNull())?.terminate()
+    }
 
-    fun setMicMuted(m: Boolean) = h.post { core.isMicEnabled = !m }
+    fun setMicMuted(m: Boolean) = h.post { if (built) core.isMicEnabled = !m }
 
     /** Enruta entrada (micro del teléfono) y salida (altavoz) explícitamente: evita que el micro
      *  quede en un dispositivo equivocado (silencio en subida) o que un HW EC roto lo deje mudo. */

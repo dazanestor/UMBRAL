@@ -69,6 +69,19 @@ matar(){
       kill "$pid" 2>/dev/null && say "parado proceso $pid ($name)"
     done
   done
+  # Red de seguridad: la regex de arriba tiene grupos y alternancias cuyo soporte en el pgrep de
+  # busybox del stock no esta garantizado (parte del userland es busybox; ver notas del
+  # 2026-11-24 sobre 'tar'). Si por eso no encontrara nada (en vez de no haber nada que matar), un
+  # qvReboot.sh dormido seguiria vivo sin que nadie se enterase. Se comprueba con un pgrep mas
+  # simple (solo subcadena, sin grupos: deberia funcionar en cualquier pgrep) y, si queda algo
+  # vivo que el de arriba no paro, se avisa FUERTE en vez de seguir en silencio.
+  for name in qvReboot.sh watchdog_pulse.sh watchdog_server.sh watchdog_gui.sh; do
+    for pid in $(pgrep -f "$SCRIPTS/$name" 2>/dev/null); do
+      case "$prot" in *" $pid "*) continue;; esac
+      kill -0 "$pid" 2>/dev/null || continue
+      say "AVISO: sigue vivo el proceso $pid ($name) tras anular (¿el pgrep con filtros no funciona en este stock?); matalo a mano: kill $pid"
+    done
+  done
 }
 
 case "$MODE" in

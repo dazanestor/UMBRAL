@@ -614,19 +614,28 @@ function monitorDoor(){
 function qrShow(value,title,desc){document.getElementById('qr-title').textContent=title;document.getElementById('qr-desc').textContent=desc;document.getElementById('qr').hidden=false;try{ if(window.QRious){new QRious({element:document.getElementById('qrc'),value:value,size:520,background:'#fff',foreground:'#0d0e12',level:'L'});} }catch(e){}}
 function openQR(){requirePin(()=>qrShow(JSON.stringify({sip:'sip.midominio.com',user:'portero',id:'QV-'+Math.random().toString(36).slice(2,8).toUpperCase()}),'Emparejar móvil','Escanea con la app para registrar el móvil. Sin cuenta ni nube.'),'PIN para emparejar','Verifica tu identidad antes de mostrar el código.');}
 function closeQR(){document.getElementById('qr').hidden=true;}
-/* ---------- gate PIN (demo: 1234) ---------- */
-const DEMO_PIN='1234';
+/* ---------- gate PIN ---------- */
+const PIN_LEN=4; // longitud fija del PIN del panel (el teclado solo admite 4 digitos)
 let pinBuf='',pinCb=null,pinTimer=null;
 const PIN_TIMEOUT=20000; // sin introducir el PIN en 20s -> volver a Inicio
 function armPinTimeout(){ if(pinTimer)clearTimeout(pinTimer); pinTimer=setTimeout(function(){ pinCancel(); try{ if(window.go)go('home'); }catch(e){} },PIN_TIMEOUT); }
 function requirePin(cb,title,desc){pinBuf='';pinCb=cb;document.getElementById('pin-title').textContent=title||'Introduce tu PIN';document.getElementById('pin-desc').textContent=desc||'Protegido por seguridad.';renderPinDots();document.getElementById('pinmodal').hidden=false;armPinTimeout();}
 function renderPinDots(){const d=document.getElementById('pin-dots');[].forEach.call(d.children,(el,i)=>el.classList.toggle('on',i<pinBuf.length));}
-function pinKey(n){if(pinBuf.length>=DEMO_PIN.length)return;pinBuf+=n;renderPinDots();armPinTimeout();if(pinBuf.length===DEMO_PIN.length)setTimeout(checkPin,140);}
+function pinKey(n){if(pinBuf.length>=PIN_LEN)return;pinBuf+=n;renderPinDots();armPinTimeout();if(pinBuf.length===PIN_LEN)setTimeout(checkPin,140);}
 function pinDel(){pinBuf=pinBuf.slice(0,-1);renderPinDots();armPinTimeout();}
 function pinCancel(){if(pinTimer){clearTimeout(pinTimer);pinTimer=null;}document.getElementById('pinmodal').hidden=true;pinBuf='';pinCb=null;}
-function checkPin(){if(pinBuf===DEMO_PIN){if(pinTimer){clearTimeout(pinTimer);pinTimer=null;}document.getElementById('pinmodal').hidden=true;const cb=pinCb;pinCb=null;pinBuf='';if(cb)cb();}else{pinBuf='';renderPinDots();toast('PIN incorrecto');armPinTimeout();}}
-/* Protección de Ajustes con PIN (solo si hay PIN configurado, para no dejar fuera). */
-window.pinSet=false;
+// Marcador SIN PIN de demostracion: la implementacion real (abajo, linea ~1282) llama a
+// /api/pin/verify y sustituye esta funcion. Si por lo que sea esa sustitucion no llegara a
+// ejecutarse (orden de scripts, un script que falla al cargar...), este placeholder NUNCA acepta
+// ningun PIN (fail-closed): antes aceptaba un '1234' fijo, una puerta trasera silenciosa en un
+// panel de videoportero.
+function checkPin(){pinBuf='';renderPinDots();toast('No se pudo verificar el PIN (recarga la pagina)');armPinTimeout();}
+/* Proteccion de Ajustes/acciones con PIN. Por defecto true (fail-safe): el panel SIEMPRE tiene un
+   PIN configurado (1234 de fabrica si no se ha cambiado), asi que mientras no sabemos la
+   respuesta real de /api/pin es mas seguro asumir que hace falta, no al reves (si asumieramos
+   false, una pulsacion justo tras cargar la pagina -antes de que responda este fetch- se saltaria
+   el PIN). */
+window.pinSet=true;
 fetch('/api/pin').then(function(r){return r.json();}).then(function(j){window.pinSet=!!j.set;}).catch(function(){});
 function gotoSettings(){ if(window.pinSet&&typeof requirePin==='function'){ requirePin(function(){go('set');},'PIN de ajustes','Introduce tu PIN para acceder.'); } else { go('set'); } }
 
@@ -671,7 +680,12 @@ let tT;function toast(msg){const t=document.getElementById('toast');t.textConten
 (function(){
   function send(v){ fetch('/api/brightness?v='+encodeURIComponent(v)).catch(function(){}); }
   var bri=document.getElementById('v-bri');
-  if(bri){ bri.addEventListener('input',function(){ send(bri.value); }); send(bri.value); }
+  // NO se manda nada al cargar: el valor del slider en ese momento puede ser el por defecto del
+  // HTML o uno obsoleto restaurado de localStorage. loadScreen() (mas abajo) trae el brillo REAL
+  // guardado en el backend y lo pone en el slider; solo se manda al backend cuando el usuario
+  // mueve el slider de verdad ('input'). Antes se mandaba tambien al cargar y podia sobreescribir
+  // el brillo real (config.json y el PWM fisico del backlight) con ese valor obsoleto.
+  if(bri){ bri.addEventListener('input',function(){ send(bri.value); }); }
 })();
 </script>
 <style id=kiosk-fit>html,body{height:100%}body{padding:0!important;place-items:stretch!important}.device{width:100%!important;height:100%!important;max-width:none!important;border:0!important;border-radius:0!important;box-shadow:none!important}</style><script id="qvadis-door-hook">

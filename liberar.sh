@@ -252,7 +252,10 @@ cat > "$D/usr/local/sbin/qvadis-primer-reinicio" <<'QVEOF'
 F=/var/lib/qvadis-primer-reinicio
 [ -e "$F" ] || exit 0
 rm -f "$F"; sync
-for i in $(seq 1 40); do ls /sys/bus/usb/devices/1-1 >/dev/null 2>&1 && exit 0; sleep 1; done
+# "1-1" es donde midimos el hub en la placa de pruebas, pero la topologia (que puerto del hub,
+# version de kernel o revision de hardware) puede hacer que enumere un nivel mas adentro (p.ej.
+# "1-1.1"): el glob "1-*" vale para cualquier dispositivo colgado del bus 1, no solo ese puerto exacto.
+for i in $(seq 1 40); do ls -d /sys/bus/usb/devices/1-* >/dev/null 2>&1 && exit 0; sleep 1; done
 logger -t qvadis-primer-reinicio "sin USB tras 40 s: reinicio unico"
 systemctl reboot
 QVEOF
@@ -313,9 +316,12 @@ cp -f "$HERE/deploy/boot/firmware/config.txt" "$BOOT/config.txt.qvnew"
 sync
 # verificar las copias antes de renombrar
 bad=0; for n in $(find "$BOOT" -name '*.qvnew'); do
-  b="${n%.qvnew}"; src=""
-  case "$b" in "$BOOT/cmdline.txt"|"$BOOT/config.txt") continue;; esac
-  rel="${b#$BOOT/}"; [ -f "$WORK/boot/$rel" ] && src="$WORK/boot/$rel" || src="$HERE/deploy/boot/firmware/$rel"
+  b="${n%.qvnew}"; rel="${b#$BOOT/}"; src=""
+  case "$b" in
+    "$BOOT/cmdline.txt") continue;;  # generado a partir del cmdline base (no es una copia 1:1): nada que comparar
+    "$BOOT/config.txt") src="$HERE/deploy/boot/firmware/config.txt";;  # viene de deploy/, NO de $WORK/boot (que trae el config.txt de serie de RPi OS)
+    *) [ -f "$WORK/boot/$rel" ] && src="$WORK/boot/$rel" || src="$HERE/deploy/boot/firmware/$rel";;
+  esac
   cmp -s "$src" "$n" || { err "copia corrupta: $rel"; bad=1; }
 done
 [ "$bad" = 0 ] || die "copias del boot corruptas; el stock sigue intacto (quita los *.qvnew)"

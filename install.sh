@@ -210,8 +210,31 @@ if [ -n "$WIFI_SSID" ]; then
   } > "$WPA"; chmod 600 "$WPA"
 fi
 if [ -n "$SIP_PASS" ]; then
-  sed -i "s/password=CHANGE_ME/password=$SIP_PASS/g" /etc/asterisk/pjsip.conf 2>/dev/null || true
-  sed -i "s/auth_pass=CHANGE_ME/auth_pass=$SIP_PASS/g" /root/.baresip/accounts 2>/dev/null || true
+  PJ=/etc/asterisk/pjsip.conf; BA=/root/.baresip/accounts
+  # CHANGE_ME es la clave de plantilla, solo presente antes del primer install.sh. En una
+  # RE-ejecucion con una SIP_PASS nueva (rotar la clave) el sed buscaba siempre "CHANGE_ME" y ya
+  # no quedaba ninguna: no sustituia nada, sin avisar, y la placa seguia con la clave antigua.
+  # Ahora se sustituye la clave que YA estuviera puesta (CHANGE_ME la primera vez).
+  OLDPW="$(sed -n 's/^password=//p' "$PJ" 2>/dev/null | head -1)"; [ -n "$OLDPW" ] || OLDPW=CHANGE_ME
+  OLDAUTH="$(sed -n 's/.*auth_pass=\([^;]*\);.*/\1/p' "$BA" 2>/dev/null | head -1)"; [ -n "$OLDAUTH" ] || OLDAUTH=CHANGE_ME
+  if [ "$OLDPW" != "$SIP_PASS" ]; then
+    python3 - "$PJ" "password=$OLDPW" "password=$SIP_PASS" <<'PY' 2>/dev/null || true
+import sys
+p, old, new = sys.argv[1:4]
+try: s = open(p).read()
+except Exception: sys.exit(0)
+open(p, 'w').write(s.replace(old, new))
+PY
+  fi
+  if [ "$OLDAUTH" != "$SIP_PASS" ]; then
+    python3 - "$BA" "auth_pass=$OLDAUTH" "auth_pass=$SIP_PASS" <<'PY' 2>/dev/null || true
+import sys
+p, old, new = sys.argv[1:4]
+try: s = open(p).read()
+except Exception: sys.exit(0)
+open(p, 'w').write(s.replace(old, new))
+PY
+  fi
 fi
 # PIN en la config del manager
 if [ "$PIN_KEEP" = 1 ]; then :
@@ -282,12 +305,21 @@ if [ "$DO_AB" = 1 ]; then
   if [ -n "$BDEV" ] && [ "$(findmnt -no SOURCE / 2>/dev/null || true)" = "$BDEV" ]; then
     err "$BDEV es la raiz en uso (el PARTUUID no corresponde al numero de particion): A/B omitido para no formatearla"; BDEV=""
   fi
+  # Si BDEV esta montado en otro sitio (inspeccion manual, etc.), el umount puede fallar y antes se
+  # seguia igual al mkfs: formatearia un sistema de ficheros en uso sin avisar. Ahora se comprueba
+  # DE VERDAD que ya no esta montado en ningun lado antes de formatear.
+  if [ -n "$BDEV" ] && [ -b "$BDEV" ] && findmnt -rno TARGET "$BDEV" >/dev/null 2>&1; then
+    umount "$BDEV" 2>/dev/null || true
+    if findmnt -rno TARGET "$BDEV" >/dev/null 2>&1; then
+      err "$BDEV sigue montado (en $(findmnt -rno TARGET "$BDEV" | head -1)): A/B omitido para no formatear un sistema de ficheros en uso"
+      BDEV=""
+    fi
+  fi
   if [ -n "$BDEV" ] && [ -b "$BDEV" ]; then
     if [ -f /boot/firmware/cmdline_a.txt ] && [ -f /boot/firmware/cmdline_b.txt ] && [ "${FORCE_AB:-0}" != 1 ]; then
       say "A/B ya configurado: omitido (FORCE_AB=1 lo rehace y BORRA el slot B)"
     elif confirm "Configurar A/B: FORMATEAR $BDEV como slot B y clonar el sistema (para OTA con rollback)?"; then
       say "preparando slot B en $BDEV (esto borra su contenido)..."
-      umount "$BDEV" 2>/dev/null || true
       mkfs.ext4 -F -L rootfsB "$BDEV" >/dev/null
       mkdir -p /mnt/ab; mount "$BDEV" /mnt/ab
       rsync -aHAXx --delete --exclude=/tmp/* --exclude=/var/tmp/* \

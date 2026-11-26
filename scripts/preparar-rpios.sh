@@ -74,3 +74,11 @@ xz -t "$WORK/stage/rootfs.tar.xz" || die "rootfs.tar.xz corrupto"
 say "empaquetando $OUT..."
 tar -cf "$OUT" -C "$WORK/stage" boot rootfs.tar.xz MANIFEST
 say "LISTO: $OUT ($(du -h "$OUT" | cut -f1)). Copialo a la pantalla (scp) y ejecuta liberar.sh con BUNDLE=..."
+# initramfs7 no es obligatorio para arrancar (root=PARTUUID en un ext4 plano no necesita initrd),
+# pero SIN el, plymouth no puede mostrar el logo de arranque (lee initramfs7, no basta con el
+# rootfs) hasta que install.sh lo regenere con 'update-initramfs'/'plymouth-set-default-theme -R'.
+# Antes esto solo quedaba como un AVISO suelto del contenedor, facil de perder entre el resto del
+# log; se resume aqui, al final, para que no pase desapercibido.
+if [ ! -f "$WORK/stage/boot/initramfs7" ]; then
+  say "AVISO: la imagen de origen no trae initramfs7 -> SIN logo de arranque hasta ejecutar install.sh (lo regenera)"
+fi

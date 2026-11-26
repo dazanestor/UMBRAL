@@ -137,8 +137,17 @@ class Puerto:
         if self.ser:
             self.ser.write(b)
             self.ser.flush()
-        else:
-            os.write(self.fd, b)
+            return
+        # self.fd es O_NONBLOCK: os.write puede escribir MENOS bytes de los pedidos (buffer casi
+        # lleno) o lanzar BlockingIOError (buffer lleno). Sin reintentar el resto se perderia
+        # parte de lo subido a la pantalla en bucle, en silencio.
+        import select
+        total = 0
+        while total < len(b):
+            try:
+                total += os.write(self.fd, b[total:])
+            except BlockingIOError:
+                select.select([], [self.fd], [], 1)
 
 
 def buscar_cp210x():

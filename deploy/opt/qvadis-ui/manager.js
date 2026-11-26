@@ -86,6 +86,21 @@ function atomicWrite(file, data, mode) {
   fs.renameSync(tmp, file);
 }
 function saveConfig() { try { atomicWrite(CONFIG_FILE, JSON.stringify(CFG, null, 2), 0o600); } catch (e) { console.error('saveConfig', e.message); } }
+// Recarga config.json en caliente (SIGUSR1, ExecReload del unit) y reaplica lo que no se lee ya
+// en vivo de CFG en cada peticion: volumen/mic (amixer), brillo (backlight), moviles (pjsip) y AEC.
+// No toca puertas/llamadas en curso. Se añadio porque 'systemctl reload qvadis-manager' esta en
+// sudoers desde el principio pero el unit no tenia ExecReload: el reload fallaba sin hacer nada.
+function reloadConfig() {
+  try { Object.assign(CFG, JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'))); } catch (e) { console.error('reloadConfig', e.message); return; }
+  console.log('config recargada (SIGUSR1)');
+  curBrightness = (CFG.screen && CFG.screen.brightness) || 100;
+  if (screenOn) setBrightness(curBrightness);
+  execFile('amixer', ['-c', HOME_CARD, 'sset', 'PCM', (CFG.volume || 80) + '%', 'unmute'], () => {});
+  execFile('amixer', ['-c', HOME_CARD, 'sset', 'Mic', (CFG.micvolume || 85) + '%', 'cap'], () => {});
+  applyVolumes();
+  writeMobilesConfig();
+  execFile('sh', ['/var/lib/qvadis/audio-aec-up.sh'], { env: audioEnv() }, (e) => { if (e) console.error('aec-up (reload)', e.message); });
+}
 
 // --- Helpers de sistema ---
 function ast(cmd) { return new Promise((res) => { execFile('/usr/sbin/asterisk', ['-rx', cmd], { timeout: 4000 }, (e, out) => res(out || '')); }); }
@@ -278,6 +293,7 @@ try { doorsOffSync(); } catch (e) {}
 // Si pigpiod aun no estaba listo al arrancar, el apagado inicial pudo fallar en silencio: reintentos.
 [3000, 10000, 30000].forEach((t) => setTimeout(() => { try { doorsOffSync(true); } catch (e) {} }, t).unref());
 ['SIGTERM', 'SIGINT', 'SIGHUP'].forEach((s) => process.on(s, () => { try { doorsOffSync(); } catch (e) {} process.exit(0); }));
+process.on('SIGUSR1', () => { try { reloadConfig(); } catch (e) { console.error('reloadConfig', e.message); } });
 process.on('exit', () => { try { doorsOffSync(); } catch (e) {} });
 
 // Lectura de GPIO por el socket de pigpiod (una sola conexion persistente) en vez de lanzar un
@@ -320,15 +336,21 @@ function openDoor(which, cb) {
   if (doorBusy[which]) { if (cb) cb(true); return true; } // ya en curso, evita re-disparo
   doorBusy[which] = true;
   console.log('Abriendo puerta', which, 'GPIO' + g);
-  // cb(ok) con el resultado REAL de poner el GPIO a 1 (antes se contestaba "abierta" aunque pigpiod fallara)
-  pigs(['w', g, 1], (err) => { if (err) console.error('PUERTA', which, 'no se pudo abrir:', err.message); if (cb) { const c = cb; cb = null; c(!err); } });
   // Fin del pulso: si el apagado falla (p. ej. pigpiod reiniciandose) se reintenta cada segundo y la
   // puerta sigue "ocupada" (no se puede reabrir) hasta confirmar que el GPIO quedo en 0.
   const off = (n) => pigs(['w', g, 0], (err) => {
     if (err) { console.error('PUERTA', which, 'no se pudo poner a 0, reintento', n + 1); return setTimeout(() => off(n + 1), 1000); }
     doorBusy[which] = false; console.log('Puerta', which, 'cerrada (fin pulso)');
   });
-  setTimeout(() => off(0), DOOR_PULSE_MS);
+  // El pulso se cuenta desde que SE CONFIRMA el encendido (no desde que se despacha la orden): si el
+  // proceso `pigs` de encendido se retrasara (sistema cargado) y respondiera DESPUES de lo previsto,
+  // el apagado seguiria disparandose a partir de ese momento y no se quedaria el rele enganchado.
+  // cb(ok) con el resultado REAL de poner el GPIO a 1 (antes se contestaba "abierta" aunque pigpiod fallara)
+  pigs(['w', g, 1], (err) => {
+    if (err) console.error('PUERTA', which, 'no se pudo abrir:', err.message);
+    if (cb) { const c = cb; cb = null; c(!err); }
+    setTimeout(() => off(0), DOOR_PULSE_MS);
+  });
   return true;
 }
 
@@ -404,10 +426,10 @@ function intercomCmd(on) {
   execFile('sh', ['/opt/qvadis-ui/intercom-' + (on ? 'on' : 'off') + '.sh'], { env: audioEnv() },
     (e) => { if (e) console.error('intercom', on, e.message); });
 }
-function monitorStart() { monActive = true; intercomCmd(true); }
 // El silencio del micro es del hardware (amixer 'nocap'): hay que devolverlo SIEMPRE al acabar y al empezar
 // una llamada, o el micro quedaba mudo en la siguiente aunque el boton del panel se viera normal.
 function micUnmute() { execFile('amixer', ['-c', HOME_CARD, 'sset', 'Mic', 'cap'], () => {}); }
+function monitorStart() { monActive = true; micUnmute(); intercomCmd(true); }
 function monitorStop() { monActive = false; intercomCmd(false); micUnmute(); }
 // Aplica los 4 volumenes a los dispositivos del intercom (en vivo, si esta cargado)
 function applyVolumes() {
@@ -584,6 +606,16 @@ function pinCheck(p) {
 function mobileByToken(u, req) {
   const t = reqToken(u, req, !!(req.socket && req.socket.encrypted));
   return (CFG.mobiles || []).find((m) => tokEq(m.token, t));
+}
+
+// Lee un cuerpo POST pequeño (texto plano, el valor tal cual). Limite generoso para un token FCM.
+function readBody(req, max = 4096) {
+  return new Promise((resolve, reject) => {
+    let len = 0; const chunks = [];
+    req.on('data', (c) => { len += c.length; if (len > max) { req.destroy(); reject(new Error('body')); } else chunks.push(c); });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
 }
 
 function handler(req, res, remote) {
@@ -1011,13 +1043,18 @@ function handler(req, res, remote) {
     return J({ ok: true });
   }
   if (u.pathname === '/api/mobiles/fcm') {
-    // La app registra su token FCM; se autentica con su token de móvil
+    // La app registra su token FCM; se autentica con su token de móvil. El token FCM va en el
+    // cuerpo del POST, no en la URL (como el Authorization): si fuera ?fcm=... quedaria en
+    // cualquier log de acceso (remoto, por DDNS) y permitiria empujar notificaciones a ese movil.
     const tok = reqToken(u, req, !!(req.socket && req.socket.encrypted));
     const m = (CFG.mobiles || []).find((x) => tokEq(x.token, tok));
     if (!m) return J({ ok: false, err: 'auth' });
-    const nf = (u.searchParams.get('fcm') || '').slice(0, 400);
-    if (m.fcm !== nf) { m.fcm = nf; saveConfig(); }   // la app lo envia en cada apertura: sin cambios no se reescribe la eMMC
-    return J({ ok: true });
+    readBody(req).then((body) => {
+      const nf = body.slice(0, 400);
+      if (m.fcm !== nf) { m.fcm = nf; saveConfig(); }   // la app lo envia en cada apertura: sin cambios no se reescribe la eMMC
+      J({ ok: true });
+    }).catch(() => J({ ok: false, err: 'body' }));
+    return;
   }
 
   // Estaticos

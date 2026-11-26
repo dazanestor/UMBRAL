@@ -6,11 +6,11 @@ After=wpa_supplicant@wlan0.service systemd-networkd.service
 [Service]
 Type=oneshot
 # Si qvadis-wifi (scan/connect) esta trabajando (tiene el lock), no interviene: reiniciar el supplicant a mitad
-# de un cambio de red lo haria fallar y revertir.
+# de un cambio de red lo haria fallar y revertir. El lock se mantiene con 'flock' durante TODO el
+# script (espera + modprobe + restart), no solo al comprobarlo: si no, qvadis-wifi podia tomar el
+# lock a mitad de la espera y chocar con el modprobe/restart igualmente (ver qvadis-wifi-reset.sh).
 # Sin RemainAfterExit: así el .timer puede re-ejecutarlo periódicamente (vigilancia en caliente).
-# Espera hasta ~12s a que el WiFi asocie normalmente (arranque en frio).
-# Si no asocia (bug rtl8723bu tras reinicio en caliente), recarga el modulo y reinicia el supplicant.
-ExecStart=/bin/sh -c 'flock -n /run/qvadis-wifi.lock true || exit 0; for i in $(seq 1 12); do /usr/sbin/wpa_cli -i wlan0 status 2>/dev/null | grep -q wpa_state=COMPLETED && exit 0; sleep 1; done; systemctl stop wpa_supplicant@wlan0; /sbin/modprobe -r rtl8xxxu; sleep 2; /sbin/modprobe rtl8xxxu; sleep 2; systemctl start wpa_supplicant@wlan0'
+ExecStart=/bin/sh -c 'flock -n /run/qvadis-wifi.lock /usr/local/sbin/qvadis-wifi-reset.sh; exit 0'
 
 [Install]
 WantedBy=multi-user.target
