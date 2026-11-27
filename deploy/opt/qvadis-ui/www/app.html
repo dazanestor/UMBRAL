@@ -515,6 +515,10 @@ h2.title{font-family:var(--display);font-weight:500;font-size:22px;margin:6px 2p
 </div>
 
 <script>
+/* Si un ajuste no se ha podido guardar en la placa, decirlo (la interfaz ya muestra el valor nuevo) */
+(function(){ var f=window.fetch; window.fetch=function(){ return f.apply(this,arguments).then(function(r){ if(r.headers.get('X-QV-Save')==='failed') setTimeout(function(){ if(window.toast)toast('No se pudo guardar el ajuste'); },300); return r; }); }; })();
+</script>
+<script>
 /* ---------- navegación ---------- */
 function showScreen(id,navTab){
   document.querySelectorAll('.screens > .screen').forEach(s=>s.hidden = s.id!==id);
@@ -653,7 +657,7 @@ document.querySelectorAll('.slide').forEach(sl=>{
   const end=()=>{if(!drag)return;drag=false;const cur=parseInt(knob.style.left)||4;
     knob.style.transition='';fill.style.transition='';
     if(cur>=max-6){sl.classList.add('done');knob.style.left='';fill.style.width='';
-      lbl.textContent='Puerta abierta';toast((sl.closest('.card')?.querySelector('.nm')?.textContent||'Puerta')+' abierta');
+      lbl.textContent='Abriendo…';
       setTimeout(()=>{sl.classList.remove('done');lbl.textContent='Desliza para abrir';},2600);}
     else{knob.style.left='';fill.style.width='';}};
   knob.addEventListener('mousedown',start);knob.addEventListener('touchstart',start,{passive:true});
@@ -690,7 +694,10 @@ let tT;function toast(msg){const t=document.getElementById('toast');t.textConten
 </script>
 <style id=kiosk-fit>html,body{height:100%}body{padding:0!important;place-items:stretch!important}.device{width:100%!important;height:100%!important;max-width:none!important;border:0!important;border-radius:0!important;box-shadow:none!important}</style><script id="qvadis-door-hook">
 (function(){
-  window.openDoor=function(which){ fetch('/api/door/open?which='+which).catch(function(){}); };
+  window.openDoor=function(which){
+    var di=function(ok){ if(window.toast)toast(ok?(which==='aux'?'Puerta auxiliar abierta':'Puerta abierta'):'No se pudo abrir la puerta'); };
+    fetch('/api/door/open?which='+which).then(function(r){return r.json();}).then(function(j){ di(j.ok); }).catch(function(){ di(false); });
+  };
   var map={principal:'front',auxiliar:'aux'};
   document.querySelectorAll('.slide[data-door]').forEach(function(sl){
     var which=map[sl.getAttribute('data-door')]||'front';
@@ -1447,14 +1454,14 @@ h2.title{font-size:26px}
       document.getElementById('dt-time').value=p(d.getHours())+':'+p(d.getMinutes()); }
     function refresh(){ fetch('/api/ntp').then(function(r){return r.json();}).then(function(j){ autosw.checked=j.auto; card.style.display=j.auto?'none':'block'; if(!j.auto)prefill(); }); }
     autosw.onchange=null;
-    autosw.addEventListener('change',function(){ fetch('/api/ntp/set?on='+(autosw.checked?1:0)).then(function(){ setTimeout(refresh,300); if(window.toast)toast(autosw.checked?'Hora automática (NTP)':'Hora manual'); }); });
+    autosw.addEventListener('change',function(){ fetch('/api/ntp/set?on='+(autosw.checked?1:0)).then(function(r){return r.json();}).then(function(j){ setTimeout(refresh,300); if(window.toast)toast(!j.ok?'No se pudo cambiar':(autosw.checked?'Hora automática (NTP)':'Hora manual')); }).catch(function(){ setTimeout(refresh,300); if(window.toast)toast('No se pudo cambiar'); }); });
     document.getElementById('dt-save').addEventListener('click',function(){
       var d=document.getElementById('dt-date').value.trim(), t=document.getElementById('dt-time').value.trim();
       if(!d||!t){ if(window.toast)toast('Introduce fecha y hora'); return; }
       var m=d.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
       if(!m){ if(window.toast)toast('Fecha: usa DD/MM/AAAA'); return; }
       var iso=m[3]+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[1]).slice(-2);
-      fetch('/api/datetime/set?dt='+encodeURIComponent(iso+' '+t)).then(function(r){return r.json();}).then(function(j){ if(window.toast)toast(j.ok?'Fecha y hora guardadas':'Formato no válido'); });
+      fetch('/api/datetime/set?dt='+encodeURIComponent(iso+' '+t)).then(function(r){return r.json();}).then(function(j){ if(window.toast)toast(j.ok?'Fecha y hora guardadas':(j.err==='format'?'Formato no válido':'No se pudo guardar la hora')); });
     });
     refresh();
   }
@@ -1677,7 +1684,8 @@ h2.title{font-size:26px}
       var base='Versión '+(j.version||'?')+' · slot '+fmtSlot(j.activeSlot);
       var b=ensureInstallBtn();
       if(!otaEnabled){ setSt(base+' · actualizaciones desactivadas'); if(b)b.style.display='none'; return; }
-      if(j.pending){ setSt(base+' · actualización en curso…'); if(b)b.style.display='none'; return; }
+      if(j.pending||j.busy){ setSt(base+' · actualización en curso…'); if(b)b.style.display='none'; return; }
+      if(j.failed){ setSt(base+' · la última actualización falló'); if(b)b.style.display=(j.lastCheck&&j.lastCheck.available)?'block':'none'; return; }
       if(j.lastCheck && j.lastCheck.available){ setSt(base+' · hay actualización ('+j.lastCheck.remote+')'); if(b)b.style.display='block'; }
       else { setSt(base+' · al día'); if(b)b.style.display='none'; }
     }).catch(function(){});

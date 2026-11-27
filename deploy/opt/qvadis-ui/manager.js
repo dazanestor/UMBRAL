@@ -12,6 +12,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const net = require('net');
+const { AsyncLocalStorage } = require('async_hooks');
 const { execFile, execFileSync, spawn } = require('child_process');
 const crypto = require('crypto');
 
@@ -85,7 +86,8 @@ function atomicWrite(file, data, mode) {
   try { if (mode) fs.fchmodSync(fd, mode); fs.writeSync(fd, data); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
   fs.renameSync(tmp, file);
 }
-function saveConfig() { try { atomicWrite(CONFIG_FILE, JSON.stringify(CFG, null, 2), 0o600); } catch (e) { console.error('saveConfig', e.message); } }
+const saveCtx = new AsyncLocalStorage();   // por peticion: si falla un guardado, SU respuesta lo dice
+function saveConfig() { try { atomicWrite(CONFIG_FILE, JSON.stringify(CFG, null, 2), 0o600); return true; } catch (e) { console.error('saveConfig', e.message); const st = saveCtx.getStore(); if (st) st.failed = true; return false; } }
 // Recarga config.json en caliente (SIGUSR1, ExecReload del unit) y reaplica lo que no se lee ya
 // en vivo de CFG en cada peticion: volumen/mic (amixer), brillo (backlight), moviles (pjsip) y AEC.
 // No toca puertas/llamadas en curso. Se añadio porque 'systemctl reload qvadis-manager' esta en
@@ -442,11 +444,13 @@ function applyVolumes() {
 // Timbre: reproduce el tono (WAV) por el altavoz de la PANTALLA (home), como el original.
 const SND_DIR = '/opt/qvadis-ui/sounds';
 const HOME_SINK = 'alsa_output.usb-C-Media_Electronics_Inc._USB_Audio_Device-00.analog-stereo';
+// El repo solo trae ring.wav: si el tono elegido no esta en la placa, suena ese en vez de quedarse mudo.
+function sound(name) { const f = SND_DIR + '/' + name + '.wav'; return fs.existsSync(f) ? f : SND_DIR + '/ring.wav'; }
 function playRing() {
   const r = CFG.ring || {};
   const tone = (r.tone || 'r_Classic').replace(/[^0-9A-Za-z_]/g, '');
   const vol = Math.round((Math.max(0, Math.min(100, r.volume == null ? 85 : r.volume)) / 100) * 65536);
-  const f = SND_DIR + '/' + tone + '.wav';
+  const f = sound(tone);
   execFile('paplay', ['--device=' + HOME_SINK, '--volume=' + vol, f],
     { env: Object.assign({}, process.env, { XDG_RUNTIME_DIR: '/run/user/' + process.getuid() }) },
     (e) => { if (e) console.error('ring play', e.message); });
@@ -631,14 +635,16 @@ function readBody(req, max = 4096) {
 // /var/log (donde 'pi' no puede escribir): el comando no llegaba a ejecutarse y se respondia "iniciado". El
 // script ya registra en su propio log. Si en 3 s no ha terminado, esta en marcha; el codigo 3 es "ocupado"
 // (p. ej. el confirm de tras una actualizacion aun comprobando la salud).
+let OTA_FAILED = false;   // la ultima operacion lanzada desde el panel acabo mal
 function otaRun(cmd, J) {
   let done = false;
   const fin = (o) => { if (!done) { done = true; clearTimeout(t); J(o); } };
   const child = spawn('sudo', ['-n', '/usr/local/sbin/qvadis-ota', cmd], { stdio: 'ignore', detached: true });
   const t = setTimeout(() => fin({ ok: true, started: true }), 3000);
-  child.on('error', (e) => { console.error('ota', cmd, e.message); fin({ ok: false, err: 'start' }); });
+  child.on('error', (e) => { OTA_FAILED = true; console.error('ota', cmd, e.message); fin({ ok: false, err: 'start' }); });
   child.on('exit', (code) => {
     if (code) console.error('ota', cmd, 'salio con codigo', code);
+    if (code !== 3) OTA_FAILED = code !== 0;
     fin(code === 0 ? { ok: true, started: true } : { ok: false, busy: code === 3, err: code === 3 ? 'busy' : 'failed' });
   });
   child.unref();
@@ -647,7 +653,13 @@ function otaRun(cmd, J) {
 function handler(req, res, remote) {
   let u;
   try { u = new URL(req.url, 'http://localhost'); } catch (e) { res.writeHead(400); return res.end('bad'); }
-  const J = (o) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(o)); };
+  const st = saveCtx.getStore() || {};
+  const writeHead = res.writeHead.bind(res);   // cabecera en CUALQUIER respuesta de la peticion (el panel la lee)
+  res.writeHead = (code, h) => writeHead(code, st.failed ? Object.assign({}, h, { 'X-QV-Save': 'failed' }) : h);
+  const J = (o) => {
+    if (st.failed && !Array.isArray(o)) o = Object.assign({}, o, { ok: false, err: 'save' });
+    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(o));
+  };
   // En el listener remoto (HTTPS) solo pasan los endpoints permitidos y con token válido
   if (remote && !remoteOk(u, req)) { res.writeHead(403, { 'Content-Type': 'application/json' }); return res.end('{"error":"forbidden"}'); }
 
@@ -778,6 +790,7 @@ function handler(req, res, remote) {
   if (u.pathname === '/api/ringtone') {
     fs.readdir(SND_DIR, (e, files) => {
       const tones = (files || []).filter((f) => /^r_.*\.wav$/.test(f)).map((f) => f.replace(/\.wav$/, '')).sort();
+      if (!tones.length) tones.push('ring');
       J({ tones, current: (CFG.ring && CFG.ring.tone) || 'r_Classic', volume: (CFG.ring && CFG.ring.volume != null) ? CFG.ring.volume : 85 });
     });
     return;
@@ -830,12 +843,13 @@ function handler(req, res, remote) {
   if (u.pathname === '/api/ota/status') {
     execFile('sudo', ['-n', '/usr/local/sbin/qvadis-ota', 'status'], { timeout: 8000 }, (e, o) => {
       const s = {}; String(o || '').trim().split('\n').forEach((l) => { const i = l.indexOf('='); if (i > 0) s[l.slice(0, i)] = l.slice(i + 1); });
-      J({ ok: !e, version: s.version_local || '?', activeSlot: s.slot_activo || '', defaultSlot: s.slot_por_defecto || '', pending: (s.pending && s.pending !== 'no') ? s.pending : null, lastCheck: OTA_LAST });
+      J({ ok: !e, version: s.version_local || '?', activeSlot: s.slot_activo || '', defaultSlot: s.slot_por_defecto || '', pending: (s.pending && s.pending !== 'no') ? s.pending : null, busy: s.busy === 'si', failed: OTA_FAILED, lastCheck: OTA_LAST });
     });
     return;
   }
   if (u.pathname === '/api/ota/check') {
     if (CFG.ota.enabled === false) return J({ ok: false, disabled: true });
+    OTA_FAILED = false;   // al volver a buscar, el aviso del fallo anterior deja de tapar el resultado
     execFile('sudo', ['-n', '/usr/local/sbin/qvadis-ota', 'check'], { timeout: 25000 }, (e, o) => {
       const t = String(o || ''); const m = /local=(\S+)\s+remota=(\S+)/.exec(t);
       OTA_LAST = { ts: Date.now(), local: m ? m[1] : '?', remote: m ? m[2] : '?', available: /update=si/.test(t), configured: !/remota=\?/.test(t) };
@@ -991,7 +1005,7 @@ function handler(req, res, remote) {
   if (u.pathname === '/api/volume/test') {
     // tono breve para calibrar el volumen (habilitar amplificador)
     pigs(['w', 16, 1]); pigs(['w', 22, 1]); pigs(['w', 23, 1]);
-    execFile('aplay', ['-D', 'plughw:' + HOME_CARD, '/opt/qvadis-ui/sounds/voltone.wav'], () => {});
+    execFile('aplay', ['-D', 'plughw:' + HOME_CARD, sound('voltone')], () => {});
     return J({ ok: true });
   }
   if (u.pathname === '/api/micvolume') { return J({ micvolume: CFG.micvolume }); }
@@ -1102,7 +1116,7 @@ function handler(req, res, remote) {
 
 // Envoltorio: si un endpoint lanza (síncrono), respondemos 500 y seguimos vivos.
 function safeHandle(req, res, remote) {
-  try { handler(req, res, remote); }
+  try { saveCtx.run({ failed: false }, () => handler(req, res, remote)); }
   catch (e) {
     console.error('handler error:', e && e.stack || e);
     try { if (!res.headersSent) { res.writeHead(500, { 'Content-Type': 'application/json' }); } res.end('{"error":"internal"}'); } catch (_) {}

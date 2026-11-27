@@ -21,6 +21,7 @@ BOOT=/boot/firmware
 MNT=/mnt/ota
 LOG=/var/log/qvadis-ota.log
 PENDING=$BOOT/ota-pending
+INCOMPLETE=/etc/qvadis-slot-incomplete   # existe en un slot mientras se esta preparando: no se puede arrancar
 NETOK=$BOOT/ota-net-ok   # existe si la puerta de enlace respondia al ping ANTES de actualizar
 P1BAK=/var/lib/qvadis/p1-backup.tgz
 # qv_gw_ping_ok (puerta de enlace + ping), compartido con qvadis-net (ver ese fichero)
@@ -31,7 +32,8 @@ OVX=(--exclude=wpa_supplicant/ --exclude=ssh/ --exclude=machine-id --exclude=mac
      --exclude=asterisk/pjsip.conf --exclude='asterisk/*secret*' \
      --exclude=qvadis/config.json --exclude=qvadis/calls.json --exclude=NetworkManager/system-connections/)
 RSX=(--exclude=/tmp/* --exclude=/var/tmp/* --exclude=/var/cache/apt/archives/* \
-     --exclude=/var/log/* --exclude=/mnt/* --exclude=/media/* --exclude=/lost+found)
+     '--include=/var/log/**/' '--exclude=/var/log/**' --exclude="$INCOMPLETE"   # logs: solo el arbol de directorios (con su dueño)
+     --exclude=/mnt/* --exclude=/media/* --exclude=/lost+found)
 
 log(){ echo "$(date '+%F %T') $*" >> "$LOG" 2>/dev/null; echo "$*"; }
 pfx(){ findmnt -no PARTUUID / | sed 's/-[0-9]*$//'; }
@@ -103,6 +105,7 @@ remote_version(){ local v
 prepare_inactive(){ local rc; INACT=$(inactive_puuid); DEV=$(dev_of "$INACT")
   log "preparando slot $INACT ($DEV)"; mkdir -p "$MNT"; mountpoint -q "$MNT" && umount "$MNT"
   mount "$DEV" "$MNT" || { log "mount $DEV fallo"; return 1; }
+  mkdir -p "$MNT/etc" && : > "$MNT$INCOMPLETE"
   log "clonando $(cur_puuid) -> $INACT"
   rsync -aHAXx --delete "${RSX[@]}" / "$MNT/" 2>>"$LOG"
   rc=$?   # 24 = ficheros desaparecidos durante la copia (normal en un sistema en marcha)
@@ -121,26 +124,34 @@ merge_pjsip(){ local src="$1" new cur pw; new="$src/deploy/etc/asterisk/pjsip.co
 
 apply_overlay(){ local src="$1" d rc
   for d in $OVERLAY_DIRS; do [ -d "$src/deploy/$d" ] || continue
-    rsync -aHAX "${OVX[@]}" "$src/deploy/$d/" "$MNT/$d/" 2>>"$LOG"; rc=$?
+    rsync -aHAX --chown=root:root "${OVX[@]}" "$src/deploy/$d/" "$MNT/$d/" 2>>"$LOG"; rc=$?
     if [ "$rc" != 0 ] && [ "$rc" != 24 ]; then log "overlay $d FALLO (rsync rc=$rc)"; return 1; fi
   done
   # El arbol de la app es 100% del repo: se borra lo que ya no existe en el (ficheros obsoletos)
   # Mismos excludes que el resto del overlay (OVX), aunque hoy sean inofensivos aqui (no hay
   # secretos bajo opt/qvadis-ui): por si en el futuro algo sensible acabase en ese arbol, este
   # --delete no debe poder borrarlo ni pisarlo.
-  if [ -d "$src/deploy/opt/qvadis-ui" ]; then rsync -aHAX --delete "${OVX[@]}" "$src/deploy/opt/qvadis-ui/" "$MNT/opt/qvadis-ui/" 2>>"$LOG" || { log "overlay opt/qvadis-ui FALLO"; return 1; }; fi
+  if [ -d "$src/deploy/opt/qvadis-ui" ]; then rsync -aHAX --chown=root:root --delete --filter='protect sounds/**' "${OVX[@]}" "$src/deploy/opt/qvadis-ui/" "$MNT/opt/qvadis-ui/" 2>>"$LOG" || { log "overlay opt/qvadis-ui FALLO"; return 1; }; fi
   # pjsip.conf lleva ajustes locales (NAT, certificados, clave): por defecto NO se toca. Fusionarlo es opt-in.
   if [ "${MERGE_PJSIP:-0}" = 1 ]; then merge_pjsip "$src"; fi
   chmod 0755 "$MNT"/usr/local/sbin/qvadis-* 2>>"$LOG" || true     # el tarball puede traer modos sin exec
   chmod 0755 "$MNT"/opt/qvadis-ui/*.sh 2>>"$LOG" || true
-  [ -f "$MNT/etc/sudoers.d/qvadis" ] && chmod 0440 "$MNT/etc/sudoers.d/qvadis"   # sudoers: 0440 (el tarball trae 0644)
+  if [ -f "$MNT/etc/sudoers.d/qvadis" ]; then
+    chown root:root "$MNT/etc/sudoers.d/qvadis"; chmod 0440 "$MNT/etc/sudoers.d/qvadis"   # el tarball trae 0644
+    # un sudoers invalido dejaria la pantalla sin WiFi, reinicio ni OTA desde el panel
+    visudo -cf "$MNT/etc/sudoers.d/qvadis" >>"$LOG" 2>&1 || { log "sudoers.d/qvadis no valido"; return 1; }
+  fi
   return 0; }
 
+# Arranque de PRUEBA del slot $1: 'confirm' lo promociona si esta sano; si no arranca o no lo esta, se vuelve.
+arm_tryboot(){ local slot="$1" ver="$2" kind="$3" i
+  rm -f "$NETOK"; for i in 1 2 3; do qv_gw_ping_ok "" 2 && { echo "$slot $ver" > "$NETOK"; break; }; done
+  echo "$slot $ver $kind" > "$PENDING"; set_tryboot_to "$slot"; sync
+  log "tryboot -> $slot (v$ver, $kind); reiniciando"; sleep 1; reboot "0 tryboot"; }
+
 finalize(){ local ver="$1" kind="$2"
-  echo "$ver" > "$MNT$VERSION_FILE"; sync; umount "$MNT"
-  rm -f "$NETOK"; local i; for i in 1 2 3; do qv_gw_ping_ok "" 2 && { : > "$NETOK"; break; }; done
-  echo "$INACT $ver $kind" > "$PENDING"; set_tryboot_to "$INACT"; sync
-  log "tryboot -> $INACT (v$ver, $kind); reiniciando"; sleep 1; reboot "0 tryboot"; }
+  echo "$ver" > "$MNT$VERSION_FILE"; rm -f "$MNT$INCOMPLETE"; sync; umount "$MNT"
+  arm_tryboot "$INACT" "$ver" "$kind"; }
 
 chroot_apt(){ local root="$1" rc
   cp -f /etc/resolv.conf "$root/etc/resolv.conf" 2>/dev/null
@@ -155,7 +166,11 @@ chroot_apt(){ local root="$1" rc
   chroot "$root" /bin/bash -c 'set -e; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-mark unhold linux-image-rpi-v7 linux-headers-rpi-v7 raspi-firmware 2>/dev/null || true; apt-get -y full-upgrade; apt-get -y autoremove --purge || true; apt-get clean || true' 2>>"$LOG"; rc=$?
   unmount_chroot; return $rc; }
 
+# ¿hay una operacion OTA en marcha? Se mira /proc/locks para no tocar el candado (tomarlo daria "ocupado" a otro)
+ota_busy(){ local i; i=$(stat -c %i /run/qvadis-ota.lock 2>/dev/null) && grep -q "FLOCK.*:$i " /proc/locks; }
+
 cmd_status(){ echo "slot_activo=$(cur_puuid)"
+  echo "busy=$(ota_busy && echo si || echo no)"
   echo "slot_por_defecto=$(grep -o 'root=PARTUUID=[0-9a-f-]*' "$BOOT/cmdline.txt" | cut -d= -f3)"
   echo "slot_inactivo=$(inactive_puuid)"; echo "version_local=$(local_version)"
   echo "pending=$( [ -f "$PENDING" ] && cat "$PENDING" || echo no )"; }
@@ -199,7 +214,8 @@ cmd_confirm(){ [ -f "$PENDING" ] || exit 0
   read -r pend_puuid pend_ver pend_kind < "$PENDING"; cur=$(cur_puuid)
   if [ "$cur" = "$pend_puuid" ]; then
     log "confirm: en slot de prueba $cur (v$pend_ver, $pend_kind), comprobando salud"
-    local net=0; [ -f "$NETOK" ] && net=1; rm -f "$NETOK"
+    # solo vale la marca de ESTE arranque (un confirm antiguo no la borra); vacia = escrita por la version anterior
+    local net=0 mark; if [ -f "$NETOK" ]; then mark=$(cat "$NETOK"); { [ -z "$mark" ] || [ "$mark" = "$pend_puuid $pend_ver" ]; } && net=1; fi; rm -f "$NETOK"
     if health_ok "$net"; then
       promote "$cur"; echo "$pend_ver" > "$VERSION_FILE"; rm -f "$PENDING"
       if [ "$pend_kind" = os ]; then rm -f "$P1BAK"; sync_modules_to_other; fi
@@ -214,7 +230,16 @@ cmd_confirm(){ [ -f "$PENDING" ] || exit 0
     if [ "$pend_kind" = os ] && [ -f "$P1BAK" ]; then log "restaurando p1 tras fallo de arranque"; tar -xzf "$P1BAK" -C "$BOOT" && rm -f "$P1BAK"; sync; fi
   fi; }
 
-cmd_rollback(){ local other; other=$(inactive_puuid); log "rollback manual -> $other"; promote "$other"; sync; sleep 1; reboot; }
+# Volver al otro slot: solo si contiene un sistema completo, y a prueba (como una actualizacion).
+cmd_rollback(){ ensure_cmdfiles; local other dev ver="" ok=0
+  [ ! -f "$PENDING" ] || { log "rollback: hay una actualizacion pendiente de confirmar"; return 1; }
+  other=$(inactive_puuid); dev=$(dev_of "$other"); mkdir -p "$MNT"; mountpoint -q "$MNT" && umount "$MNT"
+  mount -o ro "$dev" "$MNT" 2>>"$LOG" || { log "rollback: no puedo montar $dev (¿instalacion sin A/B?)"; return 1; }
+  if [ ! -e "$MNT$INCOMPLETE" ] && [ -x "$MNT/usr/lib/systemd/systemd" ] && [ -x "$MNT/usr/local/sbin/qvadis-ota" ] \
+     && grep -q "^PARTUUID=$other[[:space:]]" "$MNT/etc/fstab"; then ok=1; ver=$(qv_trim "$(cat "$MNT$VERSION_FILE" 2>/dev/null)"); fi
+  umount "$MNT"
+  [ "$ok" = 1 ] || { log "rollback: el slot $other no tiene un sistema completo; no se cambia nada"; return 1; }
+  log "rollback manual -> $other"; arm_tryboot "$other" "${ver:-0}" app; }
 
 # Una sola operacion a la vez (doble clic en la UI, confirm + update, etc.)
 case "${1:-}" in update|os-upgrade|rollback|confirm)

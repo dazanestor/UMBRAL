@@ -29,6 +29,8 @@ object Notifications {
     const val CH_MISSED = "umbral_missed"
     /** Respaldo con sonido+vibración: se usa si Android no deja abrir la pantalla de llamada (permiso de pantalla completa denegado). */
     const val CH_INCOMING_LOUD = "umbral_incoming_loud"
+    /** Android conserva el sonido de un canal aunque se borre y se recree: un id distinto por tono. */
+    private fun loudChannel(ctx: Context) = CH_INCOMING_LOUD + "_" + Integer.toHexString(Prefs.ringtoneUri(ctx).hashCode())
     const val ID_INCOMING = 1001
     const val ID_MISSED = 1002
     private val missedSeq = java.util.concurrent.atomic.AtomicInteger(0)
@@ -48,7 +50,10 @@ object Notifications {
         val missed = NotificationChannel(CH_MISSED, "Llamadas perdidas", NotificationManager.IMPORTANCE_DEFAULT).apply {
             description = "Resumen de llamadas no atendidas"
         }
-        val loud = NotificationChannel(CH_INCOMING_LOUD, "Llamada a la puerta (con sonido)", NotificationManager.IMPORTANCE_HIGH).apply {
+        val loudId = loudChannel(ctx)
+        nm.notificationChannels.filter { it.id.startsWith(CH_INCOMING_LOUD) && it.id != loudId }
+            .forEach { nm.deleteNotificationChannel(it.id) }
+        val loud = NotificationChannel(loudId, "Llamada a la puerta (con sonido)", NotificationManager.IMPORTANCE_HIGH).apply {
             description = "Aviso con sonido cuando no se puede abrir la pantalla de llamada"
             enableVibration(true); vibrationPattern = longArrayOf(0, 700, 900, 700, 900)
             val uri = runCatching { android.net.Uri.parse(es.qvadis.app.store.Prefs.ringtoneUri(ctx)) }.getOrNull()
@@ -65,7 +70,7 @@ object Notifications {
     fun applyRingtone(ctx: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = ctx.getSystemService(NotificationManager::class.java)
-        nm.deleteNotificationChannel(CH_INCOMING); nm.deleteNotificationChannel(CH_INCOMING_LOUD)
+        nm.deleteNotificationChannel(CH_INCOMING)
         ensureChannels(ctx)
     }
 
@@ -82,13 +87,19 @@ object Notifications {
         // canal silencioso, el timbre no sonaría: se usa el canal con sonido y vibración.
         val nmgr = ctx.getSystemService(NotificationManager::class.java)
         val noFsi = Build.VERSION.SDK_INT >= 34 && !nmgr.canUseFullScreenIntent()
-        val n = NotificationCompat.Builder(ctx, if (noFsi) CH_INCOMING_LOUD else CH_INCOMING)
+        // Con el movil en uso (encendido y desbloqueado) Android enseña un aviso flotante en vez de abrir la
+        // pantalla de llamada: tambien entonces tiene que sonar.
+        val inUse = ctx.getSystemService(android.os.PowerManager::class.java).isInteractive &&
+                !ctx.getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked
+        val loud = noFsi || inUse
+        val n = NotificationCompat.Builder(ctx, if (loud) loudChannel(ctx) else CH_INCOMING)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(ctx.getString(R.string.call_title))
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setOngoing(true)
             .setAutoCancel(true)
+            .setContentIntent(full)
             .setFullScreenIntent(full, true)   // se muestra a pantalla completa, incluso bloqueado
             // Si la llamada se atiende en el panel o se cancela antes de registrar el SIP, nadie la
             // cancela: sin caducidad quedaba una notificación "ongoing" imposible de descartar.

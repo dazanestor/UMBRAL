@@ -39,15 +39,18 @@ class CallActivity : AppCompatActivity() {
 
     companion object {
         /** La usa Notifications.showIncoming para no duplicar la notificación si ya hay pantalla de llamada. */
-        @Volatile var isActive = false
+        val isActive get() = visible != null
+        /** La instancia visible. Con dos (una cerrandose y otra nueva), el onStop tardio de la vieja no cuenta. */
+        @Volatile private var visible: CallActivity? = null
         /** Instancia duena de los avisos de SipManager (solo ella puede quitarlos). */
         private var owner: java.lang.ref.WeakReference<CallActivity>? = null
     }
 
-    override fun onStart() { super.onStart(); isActive = true; Notifications.cancelIncoming(this) }
-    override fun onStop() { super.onStop(); isActive = false }
+    override fun onStart() { super.onStart(); visible = this; Notifications.cancelIncoming(this) }
+    override fun onStop() { super.onStop(); hidden() }
+    private fun hidden() { if (visible === this) visible = null }
     // desde que empieza a cerrarse ya no cuenta como pantalla de llamada (onStop llega mas tarde)
-    override fun finish() { isActive = false; super.finish() }
+    override fun finish() { hidden(); super.finish() }
 
     override fun onCreate(s: Bundle?) {
         super.onCreate(s)

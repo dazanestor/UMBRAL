@@ -88,14 +88,14 @@ rm -rf /var/lib/apt/lists/* 2>/dev/null || true
 
 # ---------- 2) ficheros (deploy -> /) ----------
 say "copiando ficheros del sistema (deploy/)..."
-# opt, usr, var, root, y etc SIN pisar los secretos reales que ya pudiera haber
+# opt, usr, root y etc SIN pisar los secretos reales que ya pudiera haber
 # --chown=root:root es OBLIGATORIO: sin el, rsync -a copia el propietario del arbol de origen; si el repo se clono o
 # copio como el usuario pi, /etc, /usr, /etc/sudoers.d y /etc/systemd/system quedaban propiedad de pi (sudo se
 # negaba a funcionar y pi podia editar scripts que corren como root). Visto en una pantalla real (2026-11-24).
 rsync -aHAX --chown=root:root "$DEPLOY/opt/"  /opt/
 rsync -aHAX --chown=root:root "$DEPLOY/usr/"  /usr/
-# el estado del usuario (config.json, calls.json) nunca viaja en deploy/
-rsync -aHAX --chown=root:root --exclude=/lib/qvadis/config.json --exclude=/lib/qvadis/calls.json "$DEPLOY/var/" /var/
+# /var no viaja en deploy/ (solo hay estado del usuario). El directorio es de pi desde ya, por si algo aborta despues
+mkdir -p /var/lib/qvadis && chown pi:pi /var/lib/qvadis
 # Secretos/estado: NO se pisan si ya estan configurados (volver a ejecutar install.sh no debe romper SIP ni WiFi)
 rsync -aHAX --chown=root:root --exclude=/.baresip/accounts "$DEPLOY/root/" /root/
 rsync -aHAX --chown=root:root --exclude=/asterisk/pjsip.conf --exclude=/wpa_supplicant/wpa_supplicant-wlan0.conf "$DEPLOY/etc/" /etc/
@@ -323,7 +323,7 @@ if [ "$DO_AB" = 1 ]; then
       mkfs.ext4 -F -L rootfsB "$BDEV" >/dev/null
       mkdir -p /mnt/ab; mount "$BDEV" /mnt/ab
       rsync -aHAXx --delete --exclude=/tmp/* --exclude=/var/tmp/* \
-        --exclude=/var/cache/apt/archives/* --exclude=/var/log/* \
+        --exclude=/var/cache/apt/archives/* '--include=/var/log/**/' '--exclude=/var/log/**' \
         --exclude=/mnt/* --exclude=/media/* --exclude=/lost+found / /mnt/ab/
       sed -i "/[[:space:]]\/[[:space:]].*ext4/ s/PARTUUID=[0-9a-f-]*/PARTUUID=$PFX-$BSUF/" /mnt/ab/etc/fstab
       umount /mnt/ab
