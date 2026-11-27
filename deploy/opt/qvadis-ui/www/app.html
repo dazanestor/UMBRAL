@@ -1694,7 +1694,7 @@ h2.title{font-size:26px}
     }).catch(function(){ setSt('No se pudo comprobar'); });
   };
   function doInstall(){
-    function go(){ if(window.toast)toast('Instalando… el equipo se reiniciará'); setSt('Instalando actualización…'); var b=document.getElementById('ota-install'); if(b)b.style.display='none'; fetch('/api/ota/update').catch(function(){}); }
+    function go(){ if(window.toast)toast('Instalando… el equipo se reiniciará'); setSt('Instalando actualización…'); var b=document.getElementById('ota-install'); if(b)b.style.display='none'; fetch('/api/ota/update').then(function(r){return r.json();}).then(function(j){ if(j.ok)return; var m=j.busy?'Hay otra operación en curso; prueba en unos minutos':'No se pudo iniciar la actualización'; if(window.toast)toast(m); setSt(m); if(b)b.style.display='block'; }).catch(function(){}); }
     if(window.pinSet&&typeof requirePin==='function') requirePin(go,'Confirmar actualización','Se instalará y el equipo se reiniciará. Introduce el PIN.'); else go();
   }
   function vis(id){ var e=document.getElementById(id); return e && !e.hidden && e.offsetParent!==null; }

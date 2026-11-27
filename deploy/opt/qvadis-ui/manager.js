@@ -627,6 +627,23 @@ function readBody(req, max = 4096) {
   });
 }
 
+// Lanza qvadis-ota y contesta con lo que de verdad ha pasado. Antes se lanzaba con un shell que redirigia a
+// /var/log (donde 'pi' no puede escribir): el comando no llegaba a ejecutarse y se respondia "iniciado". El
+// script ya registra en su propio log. Si en 3 s no ha terminado, esta en marcha; el codigo 3 es "ocupado"
+// (p. ej. el confirm de tras una actualizacion aun comprobando la salud).
+function otaRun(cmd, J) {
+  let done = false;
+  const fin = (o) => { if (!done) { done = true; clearTimeout(t); J(o); } };
+  const child = spawn('sudo', ['-n', '/usr/local/sbin/qvadis-ota', cmd], { stdio: 'ignore', detached: true });
+  const t = setTimeout(() => fin({ ok: true, started: true }), 3000);
+  child.on('error', (e) => { console.error('ota', cmd, e.message); fin({ ok: false, err: 'start' }); });
+  child.on('exit', (code) => {
+    if (code) console.error('ota', cmd, 'salio con codigo', code);
+    fin(code === 0 ? { ok: true, started: true } : { ok: false, busy: code === 3, err: code === 3 ? 'busy' : 'failed' });
+  });
+  child.unref();
+}
+
 function handler(req, res, remote) {
   let u;
   try { u = new URL(req.url, 'http://localhost'); } catch (e) { res.writeHead(400); return res.end('bad'); }
@@ -828,15 +845,9 @@ function handler(req, res, remote) {
   }
   if (u.pathname === '/api/ota/update') {
     if (CFG.ota.enabled === false) return J({ ok: false, disabled: true });
-    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"ok":true,"started":true}');
-    execFile('sh', ['-c', 'sudo -n /usr/local/sbin/qvadis-ota update >/var/log/qvadis-ota-run.log 2>&1 &'], () => {});
-    return;
+    return otaRun('update', J);
   }
-  if (u.pathname === '/api/ota/rollback') {
-    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"ok":true,"started":true}');
-    execFile('sh', ['-c', 'sudo -n /usr/local/sbin/qvadis-ota rollback >/var/log/qvadis-ota-run.log 2>&1 &'], () => {});
-    return;
-  }
+  if (u.pathname === '/api/ota/rollback') { return otaRun('rollback', J); }
   if (u.pathname === '/api/ntp') { execFile('timedatectl', ['show', '-p', 'NTP', '--value'], { timeout: 3000 }, (e, o) => { J({ auto: String(o).trim() === 'yes' }); }); return; }
   if (u.pathname === '/api/ntp/set') { const on = u.searchParams.get('on') === '1'; execFile('sudo', ['-n', 'timedatectl', 'set-ntp', on ? 'true' : 'false'], { timeout: 5000 }, (e) => { J({ ok: !e, auto: on }); }); return; }
   if (u.pathname === '/api/datetime/set') {

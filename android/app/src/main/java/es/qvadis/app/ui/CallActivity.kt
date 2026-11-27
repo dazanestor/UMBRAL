@@ -46,6 +46,8 @@ class CallActivity : AppCompatActivity() {
 
     override fun onStart() { super.onStart(); isActive = true; Notifications.cancelIncoming(this) }
     override fun onStop() { super.onStop(); isActive = false }
+    // desde que empieza a cerrarse ya no cuenta como pantalla de llamada (onStop llega mas tarde)
+    override fun finish() { isActive = false; super.finish() }
 
     override fun onCreate(s: Bundle?) {
         super.onCreate(s)
@@ -79,7 +81,10 @@ class CallActivity : AppCompatActivity() {
         // notificacion (isActive), asi que esta misma pantalla vuelve a "entrante" y suena.
         sip?.onCallIncoming = {
             runOnUiThread {
-                if (callEnded) {
+                if (isFinishing) {
+                    // entra justo mientras se cierra la pantalla de la anterior: que avise la notificacion
+                    Notifications.showIncoming(applicationContext)
+                } else if (callEnded) {
                     callEnded = false
                     muted = false; btnMute.setImageResource(R.drawable.ic_mic)
                     speaker = true; btnSpeaker.setImageResource(R.drawable.ic_volume_up)
