@@ -10,7 +10,6 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.view.View
 import android.widget.ImageButton
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import es.qvadis.app.R
 import es.qvadis.app.model.Account
@@ -35,10 +34,14 @@ class CallActivity : AppCompatActivity() {
     private var speaker = true
     private var ringPlayer: MediaPlayer? = null
     private var vibrator: Vibrator? = null
+    private var authInProgress = false
+    private var callEnded = false
 
     companion object {
         /** La usa Notifications.showIncoming para no duplicar la notificación si ya hay pantalla de llamada. */
         @Volatile var isActive = false
+        /** Instancia duena de los avisos de SipManager (solo ella puede quitarlos). */
+        private var owner: java.lang.ref.WeakReference<CallActivity>? = null
     }
 
     override fun onStart() { super.onStart(); isActive = true; Notifications.cancelIncoming(this) }
@@ -59,13 +62,30 @@ class CallActivity : AppCompatActivity() {
         val btnMute = findViewById<ImageButton>(R.id.btn_mute)
         val btnSpeaker = findViewById<ImageButton>(R.id.btn_speaker)
 
+        owner = java.lang.ref.WeakReference(this)
         sip = SipManager.get(this, acc).also { s ->
-            s.onCallEnded = { runOnUiThread { stopRinging(); finish() } }
+            // con la huella/PIN en curso no se cierra todavia: la puerta debe poder abrirse (ver authDone)
+            s.onCallEnded = { runOnUiThread { stopRinging(); callEnded = true; if (!authInProgress) finish() } }
             s.onCallConnected = {                       // audio establecido -> pasar a "en llamada"
                 runOnUiThread {
                     stopRinging()
                     groupIncoming.visibility = View.GONE
                     groupActive.visibility = View.VISIBLE
+                }
+            }
+        }
+
+        // Otra llamada mientras la pantalla sigue viva esperando la huella/PIN de la anterior: no habria
+        // notificacion (isActive), asi que esta misma pantalla vuelve a "entrante" y suena.
+        sip?.onCallIncoming = {
+            runOnUiThread {
+                if (callEnded) {
+                    callEnded = false
+                    muted = false; btnMute.setImageResource(R.drawable.ic_mic)
+                    speaker = true; btnSpeaker.setImageResource(R.drawable.ic_volume_up)
+                    groupActive.visibility = View.GONE
+                    groupIncoming.visibility = View.VISIBLE
+                    startRinging()
                 }
             }
         }
@@ -106,14 +126,16 @@ class CallActivity : AppCompatActivity() {
     }
 
     private fun openDoor() {
-        thread {
-            runCatching { api.ackCall() }               // abrir desde la llamada = atendida
-            val ok = runCatching { api.openDoor("front") }.getOrDefault(false)
-            runOnUiThread {
-                Toast.makeText(this,
-                    if (ok) R.string.door_opened else R.string.door_error, Toast.LENGTH_SHORT).show()
-            }
-        }
+        if (authInProgress) return   // el deslizador se rearma solo: una apertura cada vez
+        // Deslizar ya cuenta como llamada atendida, aunque luego se cancele la huella/PIN
+        thread { runCatching { api.ackCall() } }
+        authInProgress = true
+        openDoorWithAuth(api, after = ::authDone, onCancel = ::authDone)
+    }
+
+    private fun authDone() {
+        authInProgress = false
+        if (callEnded) finish()
     }
 
     /** Tono de llamada (el elegido en Ajustes) en bucle + vibración, como una app de teléfono. */
@@ -151,8 +173,13 @@ class CallActivity : AppCompatActivity() {
     override fun onDestroy() {
         stopRinging()
         if (::camera.isInitialized) camera.stop()   // onCreate pudo salir antes de inicializarla
-        sip?.onCallEnded = null
-        sip?.onCallConnected = null
+        // una pantalla antigua que se cierra tarde no debe quitar los avisos de la nueva
+        if (owner?.get() === this) {
+            owner = null
+            sip?.onCallEnded = null
+            sip?.onCallConnected = null
+            sip?.onCallIncoming = null
+        }
         super.onDestroy()
     }
 }

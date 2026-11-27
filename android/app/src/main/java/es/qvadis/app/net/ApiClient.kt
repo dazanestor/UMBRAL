@@ -41,10 +41,11 @@ class ApiClient(private val acc: Account) {
     }
 
     /** Avisa a la placa de que este móvil atendió/abrió (cancela el aviso de perdida). */
-    fun ackCall(): Boolean {
-        val req = post("/api/calls/ack")
-        return runCatching { http.newCall(req).execute().use { it.isSuccessful } }.getOrDefault(false)
-    }
+    fun ackCall(): Boolean = hit("/api/calls/ack")
+
+    /** Revoca el token de este móvil en la placa (al "Desemparejar"). Antes "Desemparejar" solo
+     *  borraba datos locales: el token seguía siendo válido para siempre en el servidor. */
+    fun unpair(): Boolean = hit("/api/mobiles/unpair")
 
     /** URL del stream MJPEG (para MjpegView / WebView). */
     fun cameraStreamUrl(): String = url("/api/camera/stream.mjpg")
@@ -78,9 +79,9 @@ class ApiClient(private val acc: Account) {
         val req = Request.Builder().url(url(path)).build()
         http.newCall(req).execute().use { return it.body?.string().orEmpty() }
     }
-    private fun hit(path: String, extra: String): Boolean {
-        val req = post(path, extra)
-        return runCatching { http.newCall(req).execute().use { it.isSuccessful } }.getOrDefault(false)
+    private fun hit(path: String, extra: String = ""): Boolean {
+        // la peticion se construye DENTRO: un dominio mal escrito lanza ya en url()
+        return runCatching { http.newCall(post(path, extra)).execute().use { it.isSuccessful } }.getOrDefault(false)
     }
 
     @Throws(IOException::class) fun dnd(): JSONObject = JSONObject(getStr("/api/dnd"))

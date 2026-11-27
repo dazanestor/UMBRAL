@@ -16,7 +16,9 @@ import javax.crypto.SecretKey
  * que un callback de éxito falseado (root/Frida) no basta: sin la clave desbloqueada no se abre.
  */
 object DoorKey {
-    private const val ALIAS = "umbral_door_gate"
+    // Alias distinto desde API 30: la clave creada en versiones anteriores solo admite biometria y, tras
+    // actualizar Android, no se desbloquearia con el PIN que el dialogo ya permite.
+    private val ALIAS = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) "umbral_door_gate_r" else "umbral_door_gate"
     private const val ANDROID_KS = "AndroidKeyStore"
 
     private fun create(): SecretKey {

@@ -99,7 +99,7 @@ function reloadConfig() {
   execFile('amixer', ['-c', HOME_CARD, 'sset', 'Mic', (CFG.micvolume || 85) + '%', 'cap'], () => {});
   applyVolumes();
   writeMobilesConfig();
-  execFile('sh', ['/var/lib/qvadis/audio-aec-up.sh'], { env: audioEnv() }, (e) => { if (e) console.error('aec-up (reload)', e.message); });
+  execFile('sh', ['/opt/qvadis-ui/audio-aec-up.sh'], { env: audioEnv() }, (e) => { if (e) console.error('aec-up (reload)', e.message); });
 }
 
 // --- Helpers de sistema ---
@@ -123,7 +123,7 @@ function writeMobilesConfig() {
   ast('pjsip reload'); ast('dialplan reload');
 }
 // Acceso remoto (listener HTTPS): SOLO estos endpoints, y con token de un móvil emparejado.
-const REMOTE_PATHS = ['/api/health', '/api/door/open', '/api/camera/stream.mjpg', '/api/camera/frame.jpg', '/api/snap', '/api/calls', '/api/calls/ack', '/api/device', '/api/cert', '/api/mobiles/fcm',
+const REMOTE_PATHS = ['/api/health', '/api/door/open', '/api/camera/stream.mjpg', '/api/camera/frame.jpg', '/api/snap', '/api/calls', '/api/calls/ack', '/api/device', '/api/cert', '/api/mobiles/fcm', '/api/mobiles/unpair',
   // ajustes del portero manejables desde la app (con token de móvil): volúmenes, timbre, no molestar
   '/api/audio', '/api/audio/set', '/api/ringtone', '/api/ringtone/set', '/api/dnd', '/api/dnd/set'];
 let CERT_FP = '';
@@ -144,7 +144,7 @@ function reqToken(u, req, remote) {
   return remote ? '' : (u.searchParams.get('token') || '');
 }
 // Endpoints remotos que cambian estado: solo POST (un GET se dispara con un simple enlace).
-const REMOTE_POST_ONLY = ['/api/door/open', '/api/audio/set', '/api/ringtone/set', '/api/dnd/set', '/api/calls/ack', '/api/mobiles/fcm'];
+const REMOTE_POST_ONLY = ['/api/door/open', '/api/audio/set', '/api/ringtone/set', '/api/dnd/set', '/api/calls/ack', '/api/mobiles/fcm', '/api/mobiles/unpair'];
 function remoteOk(u, req) {
   if (!REMOTE_PATHS.includes(u.pathname)) return false;
   if (REMOTE_POST_ONLY.includes(u.pathname) && req.method !== 'POST') return false;
@@ -459,7 +459,7 @@ function doorbellRing() {
   console.log('Timbre -> grupo puerta (panel + moviles)');
   // Asegura los dispositivos AEC (por si el boot los cargó antes de que Pulse estuviera listo);
   // es idempotente y hay margen (RING_DELAY) antes del originate para que baresip pueda abrir el audio.
-  execFile('sh', ['/var/lib/qvadis/audio-aec-up.sh'], { env: audioEnv() }, () => {});
+  execFile('sh', ['/opt/qvadis-ui/audio-aec-up.sh'], { env: audioEnv() }, () => {});
   logCall({ type: 'timbre', outcome: 'sonando' });
   const entry = CALLS[CALLS.length - 1]; // referencia de ESTA llamada (para foto/atendida/perdida)
   // Autocaptura: foto del visitante al sonar (si hay camara), adjunta a esta llamada
@@ -606,6 +606,15 @@ function pinCheck(p) {
 function mobileByToken(u, req) {
   const t = reqToken(u, req, !!(req.socket && req.socket.encrypted));
   return (CFG.mobiles || []).find((m) => tokEq(m.token, t));
+}
+// Compartido por /api/mobiles/remove (por ext) y /api/mobiles/unpair (por token): quita de
+// CFG.mobiles los que cumplan el predicado y persiste. Antes cada endpoint repetia las mismas 3
+// lineas de filtrar+guardar+escribir; un futuro efecto al quitar un movil (p.ej. limpiar su FCM)
+// solo habria que anadirlo aqui.
+function removeMobile(predicate) {
+  CFG.mobiles = (CFG.mobiles || []).filter((x) => !predicate(x));
+  saveConfig();
+  writeMobilesConfig();
 }
 
 // Lee un cuerpo POST pequeño (texto plano, el valor tal cual). Limite generoso para un token FCM.
@@ -1037,9 +1046,17 @@ function handler(req, res, remote) {
   }
   if (u.pathname === '/api/mobiles/remove') {
     const ext = u.searchParams.get('ext') || '';
-    CFG.mobiles = (CFG.mobiles || []).filter((x) => x.ext !== ext);
-    saveConfig();
-    writeMobilesConfig();
+    removeMobile((x) => x.ext === ext);
+    return J({ ok: true });
+  }
+  if (u.pathname === '/api/mobiles/unpair') {
+    // Autoservicio: un movil se desempareja A SI MISMO con su propio token (no por 'ext', que
+    // dejaria desemparejar a otro). Es el UNICO camino que la app puede llamar para revocar su
+    // token al "Desemparejar": antes solo borraba datos locales y el token seguia valido para
+    // siempre en el servidor (/api/mobiles/remove no esta en REMOTE_PATHS: inalcanzable remoto).
+    const m = mobileByToken(u, req);
+    if (!m) return J({ ok: false, err: 'auth' });
+    removeMobile((x) => x === m);   // ya encontrado arriba (mobileByToken); no repetir el escaneo con tokEq
     return J({ ok: true });
   }
   if (u.pathname === '/api/mobiles/fcm') {
@@ -1109,7 +1126,7 @@ server.listen(PORT, '127.0.0.1', () => {
   // Reconstruir la config de moviles emparejados (por si Asterisk arrancó antes)
   writeMobilesConfig();
   // Dispositivos AEC (home/street) persistentes: los usan el intercom local y baresip (audio movil)
-  execFile('sh', ['/var/lib/qvadis/audio-aec-up.sh'], { env: audioEnv() }, (e) => { if (e) console.error('aec-up', e.message); });
+  execFile('sh', ['/opt/qvadis-ui/audio-aec-up.sh'], { env: audioEnv() }, (e) => { if (e) console.error('aec-up', e.message); });
   // DDNS / IP pública: al arrancar y cada 5 min
   updateDdns();
   setInterval(updateDdns, 5 * 60 * 1000);

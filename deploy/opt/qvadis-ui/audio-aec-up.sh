@@ -11,7 +11,7 @@ i=0
 while [ $i -lt 30 ]; do pactl info >/dev/null 2>&1 && break; sleep 1; i=$((i+1)); done
 
 # Front-end analogico ON (amp/mic) por GPIO
-for g in 16 22 23 17 27; do pigs w "$g" 1 2>/dev/null; done
+. /opt/qvadis-ui/audio-gpio-on.sh
 
 export LC_ALL=C
 # Resolver las tarjetas por PUERTO USB FISICO (estable entre reinicios), NO por orden de

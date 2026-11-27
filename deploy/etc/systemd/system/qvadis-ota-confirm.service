@@ -1,7 +1,8 @@
 [Unit]
 Description=Confirmar/promocionar OTA A/B tras arrancar (o revertir)
-After=qvadis-kiosk.service qvadis-manager.service
-Wants=qvadis-kiosk.service
+# qvadis-wifi-reset antes: tras el tryboot el WiFi puede necesitar la recarga del modulo antes de juzgar la red
+After=qvadis-kiosk.service qvadis-manager.service qvadis-wifi-reset.service
+Wants=qvadis-kiosk.service qvadis-wifi-reset.service
 
 [Service]
 Type=oneshot

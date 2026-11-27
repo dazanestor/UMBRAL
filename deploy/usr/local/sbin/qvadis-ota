@@ -16,12 +16,15 @@ CONF=/etc/qvadis-ota.conf
 [ -f "$CONF" ] && . "$CONF"
 : "${REPO:=}"; : "${BRANCH:=main}"; : "${SRC_DIR:=}"
 : "${VERSION_FILE:=/etc/qvadis-version}"
-: "${OVERLAY_DIRS:=opt usr etc}"
+: "${OVERLAY_DIRS:=opt usr etc}"   # NO anadir var: rsync -a copiaria su propietario a /var/lib/qvadis (es de pi)
 BOOT=/boot/firmware
 MNT=/mnt/ota
 LOG=/var/log/qvadis-ota.log
 PENDING=$BOOT/ota-pending
+NETOK=$BOOT/ota-net-ok   # existe si la puerta de enlace respondia al ping ANTES de actualizar
 P1BAK=/var/lib/qvadis/p1-backup.tgz
+# qv_gw_ping_ok (puerta de enlace + ping), compartido con qvadis-net (ver ese fichero)
+. /usr/local/sbin/qvadis-apply-verify.sh
 
 # Secretos/estado que el overlay NO debe pisar (el clon ya trae los reales)
 OVX=(--exclude=wpa_supplicant/ --exclude=ssh/ --exclude=machine-id --exclude=machine-id.d/ \
@@ -38,16 +41,34 @@ dev_of(){ case "$1" in *-03) echo /dev/mmcblk0p3;; *-02) echo /dev/mmcblk0p2;; e
 cmdfile_of(){ case "$1" in *-03) echo cmdline_a.txt;; *-02) echo cmdline_b.txt;; esac; }
 other_of(){ if [ "$1" = "$(puuid_a)" ]; then puuid_b; else puuid_a; fi; }
 inactive_puuid(){ other_of "$(cur_puuid)"; }
-local_version(){ cat "$VERSION_FILE" 2>/dev/null || echo "0"; }
+# $PENDING guarda "puuid ver kind" y cmd_confirm lo lee con 'read' de 3 campos: un VERSION (local,
+# remoto o generado) con un espacio/tab suelto lo romperia. Se sanea SIEMPRE en el mismo sitio.
+qv_trim(){ printf '%s' "$1" | tr -d '[:space:]'; }
+local_version(){ local v; v=$(cat "$VERSION_FILE" 2>/dev/null) || v=0; qv_trim "$v"; }
 
 ensure_cmdfiles(){ local P; P=$(pfx)
   [ -f "$BOOT/cmdline_a.txt" ] || sed "s/root=PARTUUID=[0-9a-f-]*/root=PARTUUID=$P-03/" "$BOOT/cmdline.txt" > "$BOOT/cmdline_a.txt"
   [ -f "$BOOT/cmdline_b.txt" ] || sed "s/root=PARTUUID=[0-9a-f-]*/root=PARTUUID=$P-02/" "$BOOT/cmdline.txt" > "$BOOT/cmdline_b.txt"; }
 set_tryboot_to(){ printf 'include config.txt\ncmdline=%s\n' "$(cmdfile_of "$1")" > "$BOOT/tryboot.txt"; }
 promote(){ ensure_cmdfiles; cp -f "$BOOT/$(cmdfile_of "$1")" "$BOOT/cmdline.txt"; set_tryboot_to "$(other_of "$1")"; sync; }
-health_ok(){ local i; for i in $(seq 1 "${1:-60}"); do
-    curl -fsS http://127.0.0.1:8080/api/health >/dev/null 2>&1 && systemctl is-active --quiet qvadis-kiosk \
-      && systemctl is-active --quiet asterisk && systemctl is-active --quiet pigpiod && return 0; sleep 1; done; return 1; }
+# health_ok [exigir_red=0|1]. La red solo se exige si la puerta de enlace respondia al ping antes de la OTA
+# (hay routers que no responden: sin esta condicion se revertiria cualquier OTA sana). No se exige DNS/Internet.
+# La red se espera contra un plazo real (90 s): sin ruta por defecto cada intento vuelve al instante, y contar
+# intentos dejaba muy poco margen para que el WiFi reasocie tras el tryboot. Peor caso total: ~270 s.
+health_ok(){
+  local i ok=1
+  for i in $(seq 1 60); do
+    curl -fsS --max-time 2 http://127.0.0.1:8080/api/health >/dev/null 2>&1 && systemctl is-active --quiet qvadis-kiosk \
+      && systemctl is-active --quiet asterisk && systemctl is-active --quiet pigpiod && { ok=0; break; }
+    sleep 1
+  done
+  [ "$ok" = 0 ] || return 1
+  [ "${1:-0}" = 1 ] || return 0
+  # la red aparte, no en cada vuelta del bucle de arriba
+  local fin=$((SECONDS + 90))
+  while [ "$SECONDS" -lt "$fin" ]; do qv_gw_ping_ok "" 2 && return 0; sleep 1; done
+  return 1
+}
 
 # Tras un os-upgrade (kernel nuevo al p1 compartido), copia modulos+firmware al OTRO slot
 # para que tambien pueda arrancar con el kernel nuevo (mantiene el rollback valido).
@@ -69,8 +90,14 @@ fetch_src(){ local dest="$1"
   local tgz; tgz=$(mktemp /tmp/qvadis-ota.XXXXXX) || return 1
   curl -fsSL -A "qvadis-ota" "https://codeload.github.com/$REPO/tar.gz/refs/heads/$BRANCH" -o "$tgz" || { rm -f "$tgz"; return 1; }
   tar -xzf "$tgz" -C "$dest" --strip-components=1; local rc=$?; rm -f "$tgz"; return $rc; }
-remote_version(){ if [ -n "$SRC_DIR" ] && [ -f "$SRC_DIR/VERSION" ]; then cat "$SRC_DIR/VERSION"; return; fi
-  [ -n "$REPO" ] || return 1; curl -fsSL -A "qvadis-ota" "https://raw.githubusercontent.com/$REPO/$BRANCH/VERSION" 2>/dev/null; }
+# Mismo saneado que local_version(): un espacio/tab suelto en el VERSION del repo (local o remoto)
+# no debe hacer que cmd_check crea que hay una actualizacion cuando el contenido es el mismo.
+remote_version(){ local v
+  if [ -n "$SRC_DIR" ] && [ -f "$SRC_DIR/VERSION" ]; then v=$(cat "$SRC_DIR/VERSION")
+  else [ -n "$REPO" ] || return 1; v=$(curl -fsSL -A "qvadis-ota" "https://raw.githubusercontent.com/$REPO/$BRANCH/VERSION" 2>/dev/null) || return 1
+  fi
+  qv_trim "$v"
+}
 
 # Prepara el slot inactivo: deja montado en $MNT un clon del activo con el fstab corregido.
 prepare_inactive(){ local rc; INACT=$(inactive_puuid); DEV=$(dev_of "$INACT")
@@ -98,26 +125,35 @@ apply_overlay(){ local src="$1" d rc
     if [ "$rc" != 0 ] && [ "$rc" != 24 ]; then log "overlay $d FALLO (rsync rc=$rc)"; return 1; fi
   done
   # El arbol de la app es 100% del repo: se borra lo que ya no existe en el (ficheros obsoletos)
-  if [ -d "$src/deploy/opt/qvadis-ui" ]; then rsync -aHAX --delete "$src/deploy/opt/qvadis-ui/" "$MNT/opt/qvadis-ui/" 2>>"$LOG" || { log "overlay opt/qvadis-ui FALLO"; return 1; }; fi
+  # Mismos excludes que el resto del overlay (OVX), aunque hoy sean inofensivos aqui (no hay
+  # secretos bajo opt/qvadis-ui): por si en el futuro algo sensible acabase en ese arbol, este
+  # --delete no debe poder borrarlo ni pisarlo.
+  if [ -d "$src/deploy/opt/qvadis-ui" ]; then rsync -aHAX --delete "${OVX[@]}" "$src/deploy/opt/qvadis-ui/" "$MNT/opt/qvadis-ui/" 2>>"$LOG" || { log "overlay opt/qvadis-ui FALLO"; return 1; }; fi
   # pjsip.conf lleva ajustes locales (NAT, certificados, clave): por defecto NO se toca. Fusionarlo es opt-in.
   if [ "${MERGE_PJSIP:-0}" = 1 ]; then merge_pjsip "$src"; fi
   chmod 0755 "$MNT"/usr/local/sbin/qvadis-* 2>>"$LOG" || true     # el tarball puede traer modos sin exec
+  chmod 0755 "$MNT"/opt/qvadis-ui/*.sh 2>>"$LOG" || true
   [ -f "$MNT/etc/sudoers.d/qvadis" ] && chmod 0440 "$MNT/etc/sudoers.d/qvadis"   # sudoers: 0440 (el tarball trae 0644)
   return 0; }
 
 finalize(){ local ver="$1" kind="$2"
   echo "$ver" > "$MNT$VERSION_FILE"; sync; umount "$MNT"
+  rm -f "$NETOK"; local i; for i in 1 2 3; do qv_gw_ping_ok "" 2 && { : > "$NETOK"; break; }; done
   echo "$INACT $ver $kind" > "$PENDING"; set_tryboot_to "$INACT"; sync
   log "tryboot -> $INACT (v$ver, $kind); reiniciando"; sleep 1; reboot "0 tryboot"; }
 
 chroot_apt(){ local root="$1" rc
   cp -f /etc/resolv.conf "$root/etc/resolv.conf" 2>/dev/null
-  mount --bind /proc "$root/proc"; mount --bind /sys "$root/sys"
-  mount --bind /dev "$root/dev"; mount --bind /dev/pts "$root/dev/pts"
-  mount --bind "$BOOT" "$root/boot/firmware"
+  # Cada mount se comprueba (un chroot a medias podria dar un apt "correcto"); el umount es idempotente.
+  unmount_chroot() { umount "$root/boot/firmware" "$root/dev/pts" "$root/dev" "$root/sys" "$root/proc" 2>/dev/null; }
+  local -a dsts=(proc sys dev dev/pts boot/firmware)
+  local -a srcs=(/proc /sys /dev /dev/pts "$BOOT")
+  local i; for i in "${!dsts[@]}"; do
+    mount --bind "${srcs[$i]}" "$root/${dsts[$i]}" || { log "chroot_apt: fallo mount ${dsts[$i]}"; unmount_chroot; return 1; }
+  done
   # CM3+ es ARMv7 (32-bit): solo el kernel v7. Los kernels v6/v8 se purgan aparte (no aplican).
   chroot "$root" /bin/bash -c 'set -e; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-mark unhold linux-image-rpi-v7 linux-headers-rpi-v7 raspi-firmware 2>/dev/null || true; apt-get -y full-upgrade; apt-get -y autoremove --purge || true; apt-get clean || true' 2>>"$LOG"; rc=$?
-  umount "$root/boot/firmware" "$root/dev/pts" "$root/dev" "$root/sys" "$root/proc" 2>/dev/null; return $rc; }
+  unmount_chroot; return $rc; }
 
 cmd_status(){ echo "slot_activo=$(cur_puuid)"
   echo "slot_por_defecto=$(grep -o 'root=PARTUUID=[0-9a-f-]*' "$BOOT/cmdline.txt" | cut -d= -f3)"
@@ -129,27 +165,42 @@ cmd_check(){ local lv rv; lv=$(local_version); rv=$(remote_version || echo "")
 
 cmd_update(){ ensure_cmdfiles; local src ver; src=$(mktemp -d)
   fetch_src "$src" || { log "fetch fallo"; rm -rf "$src"; return 1; }
-  ver=$(cat "$src/VERSION" 2>/dev/null || date +%Y%m%d%H%M%S)
+  # Sin espacios NUNCA: $PENDING guarda "puuid ver kind" y cmd_confirm lo lee con 'read' de 3
+  # campos; un VERSION del repo con un espacio (o salto de linea) rompería ese parseo.
+  ver=$(qv_trim "$(cat "$src/VERSION" 2>/dev/null)"); [ -n "$ver" ] || ver=$(date +%Y%m%d%H%M%S)
   log "=== update app v$ver ==="; prepare_inactive || { rm -rf "$src"; return 1; }
   apply_overlay "$src" || { log "overlay fallo; abortando"; umount "$MNT" 2>/dev/null; rm -rf "$src"; return 1; }
   rm -rf "$src"; finalize "$ver" app; }
 
-cmd_os_upgrade(){ ensure_cmdfiles; local src ver; src=$(mktemp -d); fetch_src "$src" 2>/dev/null || true
-  ver="os-$(date +%Y%m%d%H%M%S)"
-  log "=== os-upgrade $ver ==="
+cmd_os_upgrade(){ ensure_cmdfiles; local src ver overlay_ok=1; src=$(mktemp -d)
+  # A diferencia de cmd_update (que aborta si fetch_src falla), aqui un fallo de red/GitHub al
+  # bajar el overlay NO bloquea el 'apt full-upgrade' (el objetivo principal de os-upgrade, que no
+  # necesita $src). Pero antes esto se tragaba en silencio y finalize() promocionaba igual, como
+  # si la OTA hubiera sido completa: ahora queda registrado y en la marca de qvadis-os-version.
+  if ! fetch_src "$src" 2>/dev/null; then
+    log "AVISO: no se pudo descargar el overlay de la app (red/GitHub); el SO se actualiza SIN refrescar deploy/"
+    overlay_ok=0
+  fi
+  # VERSION_FILE guarda SIEMPRE la version de la app (es la que compara 'check'): la del repo si se superpone, o
+  # la actual si no. La marca de la actualizacion del sistema va aparte, en /etc/qvadis-os-version.
+  local osver; osver="os-$(date +%Y%m%d%H%M%S)"; [ "$overlay_ok" = 1 ] || osver="${osver}-sinoverlay"
+  ver=""; [ "$overlay_ok" = 1 ] && ver=$(qv_trim "$(cat "$src/VERSION" 2>/dev/null)")
+  [ -n "$ver" ] || ver=$(local_version); [ -n "$ver" ] || ver=0
+  log "=== os-upgrade $osver (app v$ver) ==="
   mkdir -p "$(dirname "$P1BAK")"; log "respaldando p1 -> $P1BAK"; tar -czf "$P1BAK" -C "$BOOT" . 2>>"$LOG"
   prepare_inactive || { rm -rf "$src"; return 1; }
   log "apt full-upgrade en el slot inactivo (chroot)"
   if ! chroot_apt "$MNT"; then log "apt fallo; restaurando p1 y abortando"; [ -f "$P1BAK" ] && tar -xzf "$P1BAK" -C "$BOOT" 2>>"$LOG" && rm -f "$P1BAK"; sync; umount "$MNT" 2>/dev/null; rm -rf "$src"; return 1; fi
-  if [ -d "$src/deploy" ]; then apply_overlay "$src" || { log "overlay fallo; restaurando p1 y abortando"; [ -f "$P1BAK" ] && tar -xzf "$P1BAK" -C "$BOOT" 2>>"$LOG" && rm -f "$P1BAK"; sync; umount "$MNT" 2>/dev/null; rm -rf "$src"; return 1; }; fi
-  rm -rf "$src"; finalize "$ver" os; }
+  if [ "$overlay_ok" = 1 ] && [ -d "$src/deploy" ]; then apply_overlay "$src" || { log "overlay fallo; restaurando p1 y abortando"; [ -f "$P1BAK" ] && tar -xzf "$P1BAK" -C "$BOOT" 2>>"$LOG" && rm -f "$P1BAK"; sync; umount "$MNT" 2>/dev/null; rm -rf "$src"; return 1; }; fi
+  rm -rf "$src"; echo "$osver" > "$MNT/etc/qvadis-os-version"; finalize "$ver" os; }
 
 cmd_confirm(){ [ -f "$PENDING" ] || exit 0
   local pend_puuid pend_ver pend_kind cur
   read -r pend_puuid pend_ver pend_kind < "$PENDING"; cur=$(cur_puuid)
   if [ "$cur" = "$pend_puuid" ]; then
     log "confirm: en slot de prueba $cur (v$pend_ver, $pend_kind), comprobando salud"
-    if health_ok 60; then
+    local net=0; [ -f "$NETOK" ] && net=1; rm -f "$NETOK"
+    if health_ok "$net"; then
       promote "$cur"; echo "$pend_ver" > "$VERSION_FILE"; rm -f "$PENDING"
       if [ "$pend_kind" = os ]; then rm -f "$P1BAK"; sync_modules_to_other; fi
       log "OTA OK: promocionado $cur v$pend_ver ($pend_kind)"

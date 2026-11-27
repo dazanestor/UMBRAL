@@ -6,7 +6,7 @@ export XDG_RUNTIME_DIR=/run/user/1000
 
 # Asegura los dispositivos AEC (idempotente) con los volumenes actuales
 SPK_HOME="${SPK_HOME:-80}" SPK_STREET="${SPK_STREET:-70}" MIC_HOME="${MIC_HOME:-90}" MIC_STREET="${MIC_STREET:-90}" \
-  sh /var/lib/qvadis/audio-aec-up.sh
+  sh /opt/qvadis-ui/audio-aec-up.sh
 
 # Quita loopbacks previos (no toca los echo-cancel, que son persistentes). Se compara el NOMBRE
 # del modulo (2a columna) exacto, no un grep de subcadena sobre toda la linea: con grep, un modulo

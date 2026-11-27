@@ -193,7 +193,7 @@ fi
 WPA=/etc/wpa_supplicant/wpa_supplicant-wlan0.conf
 if [ -n "$WIFI_SSID" ]; then
   PMK=""
-  [ -z "$WIFI_PASS" ] || PMK="$(wpa_passphrase "$WIFI_SSID" "$WIFI_PASS" 2>/dev/null | grep -oP '^\s*psk=\K[0-9a-f]{64}' || true)"
+  [ -z "$WIFI_PASS" ] || PMK="$(printf '%s' "$WIFI_PASS" | wpa_passphrase "$WIFI_SSID" 2>/dev/null | grep -oP '^\s*psk=\K[0-9a-f]{64}' || true)"
   if [ -n "$WIFI_PASS" ] && [ -z "$PMK" ]; then
     case "$WIFI_PASS" in *\"*|*\\*) err "no pude calcular el hash de la clave WiFi y contiene \" o \\ (se escribiria roto en wpa_supplicant)"; exit 1;; esac
   fi
@@ -278,7 +278,7 @@ chmod 644 /var/lib/qvadis/certs/qvadis.crt; chmod 600 /var/lib/qvadis/certs/qvad
 say "configurando PulseAudio (pi, persistente)..."
 loginctl enable-linger pi 2>/dev/null || true
 sudo -u pi XDG_RUNTIME_DIR=/run/user/$(id -u pi) systemctl --user enable pulseaudio.socket pulseaudio.service 2>/dev/null || true
-chmod 0755 /var/lib/qvadis/audio-aec-up.sh /opt/qvadis-ui/intercom-on.sh /opt/qvadis-ui/intercom-off.sh /opt/qvadis-ui/audio-on.sh 2>/dev/null || true
+chmod 0755 /opt/qvadis-ui/audio-aec-up.sh /opt/qvadis-ui/intercom-on.sh /opt/qvadis-ui/intercom-off.sh /opt/qvadis-ui/audio-on.sh 2>/dev/null || true
 
 # ---------- 5) servicios ----------
 say "habilitando servicios..."

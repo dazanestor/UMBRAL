@@ -12,6 +12,8 @@ set -u
 IF=wlan0
 NET=/etc/systemd/network/10-wlan0.network
 TRIES=15
+# Patron aplicar/verificar/revertir compartido con qvadis-wifi (ver ese fichero)
+. /usr/local/sbin/qvadis-apply-verify.sh
 
 cur_ip()  { ip -4 -o addr show "$IF" 2>/dev/null | awk '{print $4}' | head -1; }
 cur_gw()  { ip -4 route show default dev "$IF" 2>/dev/null | awk '/default/{print $3; exit}'; }
@@ -20,14 +22,16 @@ cur_dns() { grep -hoP '^nameserver \K\S+' /run/systemd/resolve/resolv.conf /etc/
 apply() { networkctl reload >/dev/null 2>&1; networkctl reconfigure "$IF" >/dev/null 2>&1; }
 
 verify() {  # 0 = hay puerta de enlace y responde a ping
-  local gw i
+  local i
   for i in $(seq 1 $TRIES); do
-    gw=$(cur_gw)
-    if [ -n "$gw" ] && ping -c1 -W1 "$gw" >/dev/null 2>&1; then return 0; fi
+    qv_gw_ping_ok "$IF" 1 && return 0
     sleep 1
   done
   return 1
 }
+# Para 'static': ademas de la puerta de enlace, que la IP pedida sea de verdad la que quedo puesta
+# (IPADDR lo deja puesto el caso 'static' antes de llamar a esto).
+verify_static() { verify && ip -4 -o addr show "$IF" | grep -q " ${IPADDR}/"; }
 
 valid_ip() {
   echo "$1" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$' || return 1
@@ -69,9 +73,7 @@ case "${1:-}" in
   dhcp)
     cp -f "$NET" "$NET.qvbak" 2>/dev/null
     write_dhcp; mv -f "$NET.new" "$NET"
-    apply
-    if verify; then rm -f "$NET.qvbak"; echo "OK mode=dhcp ip=$(cur_ip)"; exit 0; fi
-    [ -f "$NET.qvbak" ] && mv -f "$NET.qvbak" "$NET"; apply; verify
+    if qv_apply_verify_or_revert "$NET" apply verify; then echo "OK mode=dhcp ip=$(cur_ip)"; exit 0; fi
     echo "ERR dhcp-failed reverted"; exit 1
     ;;
   static)
@@ -82,19 +84,19 @@ case "${1:-}" in
     valid_ip "$GW" || { echo "ERR bad-gw"; exit 2; }
     same_subnet "$IPADDR" "$GW" "$PFX" || { echo "ERR gw-fuera-de-subred"; exit 2; }
     [ -n "$DNS1" ] && { valid_ip "$DNS1" || { echo "ERR bad-dns"; exit 2; }; }
-    [ -z "$DNS1" ] && DNS1="$GW"
+    # Antes, un DNS2 invalido se descartaba en silencio (seguia aplicandose sin el), dejando
+    # creer que se habia puesto cuando no se puso. Igual que DNS1: si se da, tiene que ser valido.
+    [ -n "$DNS2" ] && { valid_ip "$DNS2" || { echo "ERR bad-dns2"; exit 2; }; }
+    # Sin DNS1 manda el DNS2 dado (p.ej. `static ip gw "" dns2`); sin ninguno, la puerta de enlace.
+    [ -z "$DNS1" ] && { DNS1="${DNS2:-$GW}"; DNS2=""; }
     cp -f "$NET" "$NET.qvbak" 2>/dev/null
     {
       echo "[Match]"; echo "Name=$IF"; echo
       echo "[Network]"; echo "Address=$CIDR"; echo "Gateway=$GW"; echo "DNS=$DNS1"
-      [ -n "$DNS2" ] && valid_ip "$DNS2" && echo "DNS=$DNS2"
+      [ -n "$DNS2" ] && echo "DNS=$DNS2"
     } > "$NET.new"
     mv -f "$NET.new" "$NET"
-    apply
-    if verify && ip -4 -o addr show "$IF" | grep -q " ${IPADDR}/"; then
-      rm -f "$NET.qvbak"; echo "OK mode=static ip=$CIDR gw=$GW"; exit 0
-    fi
-    [ -f "$NET.qvbak" ] && mv -f "$NET.qvbak" "$NET"; apply; verify
+    if qv_apply_verify_or_revert "$NET" apply verify_static; then echo "OK mode=static ip=$CIDR gw=$GW"; exit 0; fi
     echo "ERR static-failed reverted"; exit 1
     ;;
   *) echo "ERR usage"; exit 2;;

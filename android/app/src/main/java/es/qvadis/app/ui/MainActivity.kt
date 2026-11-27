@@ -173,14 +173,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun openDoor() {
-        thread {
-            val ok = runCatching { api.openDoor("front") }.getOrDefault(false)
-            runOnUiThread {
-                Toast.makeText(this, if (ok) R.string.door_opened else R.string.door_error, Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
+    private fun openDoor() = openDoorWithAuth(api)
 
     // ---- Ajustes ----
     private fun pickSystemRingtone() {
@@ -238,14 +231,23 @@ class MainActivity : AppCompatActivity() {
             .setTitle("Desemparejar")
             .setMessage("Se borrarán las credenciales de este móvil. Tendrás que volver a escanear el QR.")
             .setPositiveButton("Desemparejar") { _, _ ->
-                // Parar el SIP y olvidar el certificado: si no, el servicio sigue registrado con la cuenta borrada
-                runCatching { stopService(Intent(this, SipService::class.java)) }
-                SipManager.release()
-                AccountStore.clear(this)
-                Prefs.setCertPem(this, null)
-                Toast.makeText(this, "Desemparejado", Toast.LENGTH_SHORT).show()
-                startActivity(Intent(this, PairActivity::class.java))
-                finishAffinity()
+                val wait = AlertDialog.Builder(this).setMessage("Desemparejando…").setCancelable(false).show()
+                thread {
+                    val revoked = api.unpair()   // primero, con las credenciales aun puestas
+                    runOnUiThread {
+                        runCatching { wait.dismiss() }
+                        // Parar el SIP y olvidar el certificado: si no, el servicio sigue registrado con la cuenta borrada
+                        runCatching { stopService(Intent(this, SipService::class.java)) }
+                        SipManager.release()
+                        AccountStore.clear(this)
+                        Prefs.setCertPem(this, null)
+                        val msg = if (revoked) "Desemparejado"
+                                  else "Desemparejado en este móvil, pero la placa no respondió: quítalo también en el panel"
+                        Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+                        startActivity(Intent(this, PairActivity::class.java))
+                        finishAffinity()
+                    }
+                }
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()

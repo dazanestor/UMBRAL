@@ -279,7 +279,7 @@ if [ -n "$WIFI_SSID" ]; then
   # (armhf, corre en chroot). Si no se puede, va en claro, pero un " o \ la romperia: se rechaza.
   PSKLINE="psk=\"$WIFI_PASS\""
   if [ -n "$WIFI_PASS" ]; then
-    PMKHEX="$(chroot "$D" /usr/bin/wpa_passphrase "$WIFI_SSID" "$WIFI_PASS" 2>/dev/null | sed -n 's/^[[:space:]]*psk=\([0-9a-f]\{64\}\)$/\1/p' | head -1 || true)"
+    PMKHEX="$(printf '%s' "$WIFI_PASS" | chroot "$D" /usr/bin/wpa_passphrase "$WIFI_SSID" 2>/dev/null | sed -n 's/^[[:space:]]*psk=\([0-9a-f]\{64\}\)$/\1/p' | head -1 || true)"
     if [ -n "$PMKHEX" ]; then PSKLINE="psk=$PMKHEX"
     else case "$WIFI_PASS" in *\"*|*\\*) die "no pude calcular el hash de la clave WiFi y contiene \" o \\: se escribiria rota y la placa quedaria sin red. NO he tocado el arranque.";; esac; fi
   fi

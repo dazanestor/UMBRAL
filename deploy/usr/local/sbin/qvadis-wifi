@@ -14,6 +14,8 @@ IF=wlan0
 CONF=/etc/wpa_supplicant/wpa_supplicant-wlan0.conf
 WCLI="/usr/sbin/wpa_cli -i $IF"
 SVC="wpa_supplicant@${IF}"
+# Patron aplicar/verificar/revertir compartido con qvadis-net (ver ese fichero)
+. /usr/local/sbin/qvadis-apply-verify.sh
 
 # SSID de la red configurada: el helper e install.sh lo escriben en HEX (ssid=4a6f...), pero la
 # plantilla/ediciones a mano pueden llevarlo entre comillas. Devuelve el texto plano.
@@ -35,6 +37,16 @@ wait_assoc() {  # $1=ssid esperado ; devuelve 0 si COMPLETED+ip
   done
   return 1
 }
+# Envoltorios sin argumentos para qv_apply_verify_or_revert (ver qvadis-apply-verify.sh). El SSID
+# esperado se relee de $CONF en cada llamada (con conf_ssid), NO de una variable fija: en el
+# camino de revert, qv_apply_verify_or_revert ya ha restaurado $CONF a la config ANTERIOR antes de
+# volver a llamar a esto, asi que hay que esperar al SSID viejo, no al nuevo que acaba de fallar
+# (si no, esperaria en vano los 25s completos de wait_assoc). verify_connect IMPRIME la IP por
+# stdout al tener exito (la de wait_assoc): quien llama la captura invocando la funcion de la
+# biblioteca con "$(...)" (en el camino de revert, qv_apply_verify_or_revert ya descarta ese
+# stdout con "verify_fn >/dev/null 2>&1", asi que no hace falta variable global para pasar el dato).
+apply_connect() { systemctl restart "$SVC" >/dev/null 2>&1; }
+verify_connect() { wait_assoc "$(conf_ssid)"; }
 
 # scan y connect reinician el supplicant: una sola a la vez (un doble toque en la UI pisaria el .qvbak
 # con la configuracion nueva y, si falla, el revert dejaria la mala)
@@ -79,7 +91,11 @@ case "${1:-}" in
       echo "	ssid=$(printf '%s' "$SSID" | od -An -tx1 | tr -d ' \n')"
       echo "	scan_ssid=1"
       if [ -n "$PSK" ]; then
-        PMK=$(/usr/bin/wpa_passphrase "$SSID" "$PSK" 2>/dev/null | grep -oP '^\s*psk=\K[0-9a-f]{64}')
+        # $PSK por stdin, NO como argv: wpa_passphrase lee la frase de paso de stdin si se omite
+        # como 2o argumento. Pasarla en la linea de comandos (como antes) la deja legible para
+        # cualquier proceso local via 'ps aux'/'/proc/<pid>/cmdline' mientras el comando corre,
+        # justo lo que connect() evita al recibir la clave por stdin desde manager.js.
+        PMK=$(printf '%s' "$PSK" | /usr/bin/wpa_passphrase "$SSID" 2>/dev/null | grep -oP '^\s*psk=\K[0-9a-f]{64}')
         echo "	key_mgmt=WPA-PSK"
         if [ -n "$PMK" ]; then echo "	psk=$PMK"; else echo "	psk=\"$PSK\""; fi
       else
@@ -89,15 +105,10 @@ case "${1:-}" in
       echo "}"
     } > "$CONF.new"
     chmod 600 "$CONF.new"; mv -f "$CONF.new" "$CONF"
-    systemctl restart "$SVC" >/dev/null 2>&1
-    if ip=$(wait_assoc "$SSID"); then
-      rm -f "$CONF.qvbak"
+    if ip=$(qv_apply_verify_or_revert "$CONF" apply_connect verify_connect); then
       echo "OK ssid=$SSID ip=$ip"
       exit 0
     else
-      mv -f "$CONF.qvbak" "$CONF"
-      systemctl restart "$SVC" >/dev/null 2>&1
-      wait_assoc "$(conf_ssid)" >/dev/null 2>&1
       echo "ERR connect-failed reverted"
       exit 1
     fi

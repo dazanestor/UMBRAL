@@ -4,6 +4,9 @@ banaction_allports = nftables-allports
 bantime = 1h
 findtime = 10m
 maxretry = 5
+; la LAN nunca se banea, en NINGUNA jaula (incluida una sshd futura si se habilitase): antes solo
+; estaba puesto en las dos jaulas de asterisk, duplicado sin motivo (no es nada especifico de ellas)
+ignoreip = 127.0.0.1/8 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
 
 [sshd]
 enabled = false
@@ -12,8 +15,10 @@ enabled = false
 enabled = true
 # filtro propio: el "asterisk" de serie no entiende los mensajes de PJSIP (ver filter.d/qvadis-pjsip.conf)
 filter = qvadis-pjsip
+# 5060 es UDP y 5061 TCP (TLS): sin 'protocol' el bloqueo solo salia en tcp. La accion nftables
+# recorre la lista de protocolos y banea ambos puertos en los dos.
+protocol = tcp,udp
 port = 5060,5061
 logpath = /var/log/asterisk/messages.log
-# un movil con la clave vieja tras re-emparejar falla algunas veces: no banear por 5; la LAN nunca se banea
+# un movil con la clave vieja tras re-emparejar falla algunas veces: no banear por 5
 maxretry = 8
-ignoreip = 127.0.0.1/8 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16

@@ -282,8 +282,6 @@ video_selfview		window # {window,pip}
 #multicast_call_prio	0
 #multicast_listener	224.0.2.21:50000
 #multicast_listener	224.0.2.21:50002
-auplay_srate            48000
-ausrc_srate             48000
+# Qvadis: estas dos lineas cargan los modulos; ctrl_tcp es el control de llamadas de manager.js (127.0.0.1:4444).
 module                  ausine.so
 module                  ctrl_tcp.so
-audio_path              /opt/qvadis-ui/sounds
