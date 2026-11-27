@@ -143,6 +143,39 @@ apply_overlay(){ local src="$1" d rc
   fi
   return 0; }
 
+# Los moviles emparejados y el PIN viven en cada slot: antes de arrancar el OTRO se le pasan los actuales, o un
+# movil desemparejado recuperaria el acceso al volver atras. $1 = raiz montada del otro slot.
+# El directorio es de pi y esto corre como root: no se siguen enlaces simbolicos.
+sync_pairing(){ python3 -I - /var/lib/qvadis/config.json "$1/var/lib/qvadis/config.json" 2>>"$LOG" <<'PY'
+import json, os, sys
+src, dst = sys.argv[1:3]
+def load(p):
+    with os.fdopen(os.open(p, os.O_RDONLY | os.O_NOFOLLOW)) as f:
+        return json.load(f), os.fstat(f.fileno())
+if not os.path.lexists(src):
+    sys.exit(0)
+cur, st = load(src)
+try:
+    other, st = load(dst)
+except FileNotFoundError:
+    other = dict(cur)
+for k in ('mobiles', 'pin'):
+    if k in cur:
+        other[k] = cur[k]
+tmp = dst + '.ota'
+if os.path.lexists(tmp):
+    os.unlink(tmp)
+fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+os.fchown(fd, st.st_uid, st.st_gid)
+with os.fdopen(fd, 'w') as f:
+    json.dump(other, f, indent=2); f.flush(); os.fsync(f.fileno())
+os.replace(tmp, dst)
+PY
+}
+# Igual, montando antes el slot $1 (PARTUUID)
+sync_pairing_to(){ local dev rc; dev=$(dev_of "$1"); mkdir -p "$MNT"; mountpoint -q "$MNT" && umount "$MNT"
+  mount "$dev" "$MNT" 2>>"$LOG" || return 1; sync_pairing "$MNT"; rc=$?; sync; umount "$MNT"; return $rc; }
+
 # Arranque de PRUEBA del slot $1: 'confirm' lo promociona si esta sano; si no arranca o no lo esta, se vuelve.
 arm_tryboot(){ local slot="$1" ver="$2" kind="$3" i
   rm -f "$NETOK"; for i in 1 2 3; do qv_gw_ping_ok "" 2 && { echo "$slot $ver" > "$NETOK"; break; }; done
@@ -150,6 +183,7 @@ arm_tryboot(){ local slot="$1" ver="$2" kind="$3" i
   log "tryboot -> $slot (v$ver, $kind); reiniciando"; sleep 1; reboot "0 tryboot"; }
 
 finalize(){ local ver="$1" kind="$2"
+  sync_pairing "$MNT" || log "AVISO: no pude pasar los moviles emparejados al slot nuevo"
   echo "$ver" > "$MNT$VERSION_FILE"; rm -f "$MNT$INCOMPLETE"; sync; umount "$MNT"
   arm_tryboot "$INACT" "$ver" "$kind"; }
 
@@ -222,6 +256,7 @@ cmd_confirm(){ [ -f "$PENDING" ] || exit 0
       log "OTA OK: promocionado $cur v$pend_ver ($pend_kind)"
     else
       rm -f "$PENDING"; log "OTA FALLO salud en $cur; revirtiendo"
+      sync_pairing_to "$(inactive_puuid)" || log "AVISO: no pude pasar los moviles emparejados al slot anterior"
       [ "$pend_kind" = os ] && [ -f "$P1BAK" ] && { log "restaurando p1"; tar -xzf "$P1BAK" -C "$BOOT" && rm -f "$P1BAK"; sync; }
       sleep 2; reboot
     fi
@@ -239,6 +274,7 @@ cmd_rollback(){ ensure_cmdfiles; local other dev ver="" ok=0
      && grep -q "^PARTUUID=$other[[:space:]]" "$MNT/etc/fstab"; then ok=1; ver=$(qv_trim "$(cat "$MNT$VERSION_FILE" 2>/dev/null)"); fi
   umount "$MNT"
   [ "$ok" = 1 ] || { log "rollback: el slot $other no tiene un sistema completo; no se cambia nada"; return 1; }
+  sync_pairing_to "$other" || { log "rollback: no pude pasar los moviles emparejados al otro slot; no se cambia nada"; return 1; }
   log "rollback manual -> $other"; arm_tryboot "$other" "${ver:-0}" app; }
 
 # Una sola operacion a la vez (doble clic en la UI, confirm + update, etc.)
